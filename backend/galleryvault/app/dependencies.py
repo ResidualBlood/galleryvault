@@ -9,54 +9,31 @@ import re
 from collections.abc import AsyncIterator
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from fastapi import Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import Settings, get_settings, normalize_library_roots
-from ..db.uow import UnitOfWork
+from ..db.session import release_session as _release_session
 from ..logging import log_extra
+from ..observability import inc_counter
 from .core.eh_client_manager import EhClientManager
 from .core.task_dispatcher import TaskDispatcher
 from .core.uow import AbstractUnitOfWork, SqlAlchemyUnitOfWork
+from .schemas.common import (
+    BatchOperationResult,
+    EntityIdResponse,
+    MessageResponse,
+    PageParams,
+    PageResponse,
+    SortDirection,
+    SortParams,
+    StatusResponse,
+)
 from .state import app_state
-
-try:
-    from . import schemas as _schemas_mod
-
-    _schemas_subpkg = Path(_schemas_mod.__file__).parent / "schemas"
-    if hasattr(_schemas_mod, "__path__"):
-        if str(_schemas_subpkg) not in _schemas_mod.__path__:
-            _schemas_mod.__path__.append(str(_schemas_subpkg))
-    else:
-        _schemas_mod.__path__ = [str(_schemas_subpkg)]
-
-    from .schemas.common import (
-        BatchOperationResult,
-        EntityIdResponse,
-        MessageResponse,
-        PageParams,
-        PageResponse,
-        SortDirection,
-        SortParams,
-        StatusResponse,
-    )
-
-    for _cls_name in (
-        "BatchOperationResult",
-        "EntityIdResponse",
-        "MessageResponse",
-        "PageParams",
-        "PageResponse",
-        "SortDirection",
-        "SortParams",
-        "StatusResponse",
-    ):
-        if not hasattr(_schemas_mod, _cls_name):
-            setattr(_schemas_mod, _cls_name, locals()[_cls_name])
-except Exception:  # noqa: BLE001, S110
-    pass
 
 if TYPE_CHECKING:
     from ..services.downloader import Downloader
@@ -113,12 +90,9 @@ async def get_session() -> AsyncIterator[AsyncSession]:
     raise HTTPException(status_code=503, detail="Database session factory not initialized")
 
 
-async def get_uow(
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> AsyncIterator[UnitOfWork]:
-    """Yield a UnitOfWork wrapper over the active session."""
-    async with UnitOfWork(session) as uow:
-        yield uow
+async def release_session(session: Any) -> None:
+    """Deprecated import location; implementation lives in ``db.session``."""
+    await _release_session(session)
 
 
 async def get_unit_of_work(
@@ -220,7 +194,7 @@ def get_page_params(
 
 
 def get_favorite_service(
-    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
+    uow: AbstractUnitOfWork = Depends(get_unit_of_work),  # noqa: B008
     task_dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
     eh_client_manager: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> FavoriteService:
@@ -235,7 +209,7 @@ def get_favorite_service(
 
 
 def get_gallery_service(
-    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
+    uow: AbstractUnitOfWork = Depends(get_unit_of_work),  # noqa: B008
     task_dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
     eh_client_manager: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> GalleryService:
@@ -248,6 +222,20 @@ def get_gallery_service(
 
 
 def db_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, IntegrityError):
+        # A constraint conflict is a client-visible conflict, not an outage.
+        logger.warning("database conflict", extra=log_extra(error=type(exc).__name__))
+        return HTTPException(status_code=409, detail="Conflict")
+    if isinstance(exc, PoolTimeoutError):
+        # ``sqlalchemy.exc.TimeoutError`` from a pool checkout: every connection
+        # is busy for longer than ``pool_timeout``.  That is a saturation signal,
+        # not a database outage, so it gets its own detail + counter + log.
+        inc_counter("gv_db_pool_exhausted_total")
+        logger.error(
+            "database pool exhausted",
+            extra=log_extra(error=type(exc).__name__),
+        )
+        return HTTPException(status_code=503, detail="Database pool exhausted")
     logger.error("database operation failed", extra=log_extra(error=type(exc).__name__))
     return HTTPException(status_code=503, detail="Database is unavailable")
 
@@ -337,6 +325,10 @@ from fastapi.params import Depends as DependsType
 class _ManagedSessionWrapper:
     """Wraps an AsyncSession obtained from an async generator, ensuring aclose() on completion or GC."""
 
+    # Strong references to fire-and-forget aclose() tasks so the event loop does
+    # not garbage-collect them mid-flight (RUF006).
+    _close_tasks: ClassVar[set[asyncio.Task[Any]]] = set()
+
     def __init__(self, session: Any, gen: AsyncIterator[Any] | None = None) -> None:
         self._session = session
         self._gen = gen
@@ -355,7 +347,9 @@ class _ManagedSessionWrapper:
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
-                loop.create_task(self._gen.aclose())
+                close_task = loop.create_task(self._gen.aclose())
+                self._close_tasks.add(close_task)
+                close_task.add_done_callback(self._close_tasks.discard)
         except RuntimeError:
             pass
 
@@ -437,7 +431,6 @@ __all__ = [
     "SqlAlchemyUnitOfWork",
     "StatusResponse",
     "TaskDispatcher",
-    "UnitOfWork",
     "db_error",
     "display_title",
     "get_current_settings",
@@ -458,8 +451,8 @@ __all__ = [
     "get_task_manager",
     "get_thumbnail_service",
     "get_unit_of_work",
-    "get_uow",
     "image_content_type",
+    "release_session",
     "resolve_display_title",
     "resolve_session",
     "spawn_task",

@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from ...db.repository import GalleryRepository
-from ...services import messages
 from ...services.tag_sync_worker import (
     _TRANSLATION_RELEASE_API,
     tag_facets_cached,
@@ -18,10 +17,18 @@ from ...services.tag_translation import (
     translated_tag,
     translation_entry_count,
 )
-from ..dependencies import get_current_settings, get_session, get_task_manager, resolve_session
-from ..state import app_state
+from ..dependencies import (
+    get_current_settings,
+    get_session,
+    get_task_manager,
+    resolve_session,
+    spawn_task,
+)
+from .notifications import telegram_router, telegram_test
 
 router = APIRouter()
+
+__all__ = ["router", "telegram_test"]
 
 
 @router.get("/api/tags/search")
@@ -94,23 +101,25 @@ async def tag_translation_status() -> dict[str, object]:
 
 @router.post("/api/tags/search/reload", status_code=202)
 async def tag_translation_reload() -> dict[str, object]:
+    """Start a tag-translation update in the background.
+
+    The EhTagTranslation download takes seconds; awaiting it inside the request
+    made a 202 endpoint block for 6.7s.  Claim ``running`` synchronously (no
+    await between check and claim) so a second request cannot spawn a duplicate
+    before the coroutine starts, then hand off to ``translation_update_once``,
+    which owns the ``tm.track_task("translation")`` lifecycle.
+    """
     tm = get_task_manager()
-    ok = await translation_update_once()
-    return {"accepted": True, "ok": ok, "last_error": tm.translation_state.get("last_error")}
+    state = tm.translation_state
+    if state.get("running"):
+        raise HTTPException(status_code=409, detail="tag translation update already running")
+    state["running"] = True
+    task = spawn_task(translation_update_once(), "tag translation update")
+    if task is None:
+        state["running"] = False
+        raise HTTPException(status_code=503, detail="background tasks unavailable")
+    return {"accepted": True}
 
 
-@router.post("/api/telegram/test")
-async def telegram_test() -> dict[str, object]:
-    notifier = app_state.telegram
-    settings = get_current_settings()
-    if notifier is None or not settings.telegram_bot_token:
-        raise HTTPException(status_code=422, detail="Telegram bot token is not configured")
-    targets = settings.telegram_chat_ids
-    if not targets:
-        raise HTTPException(status_code=422, detail="No Telegram chat IDs configured")
-    results: dict[str, object] = {}
-    message = messages.test_message(settings.telegram_notify_lang)
-    for chat_id in targets:
-        results[str(chat_id)] = await notifier.send_message(message, chat_id=chat_id)
-    ok = all(results.values())
-    return {"ok": ok, "results": results}
+# Registered where the handler used to live so the route table keeps its order.
+router.include_router(telegram_router)

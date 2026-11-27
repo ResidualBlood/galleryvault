@@ -10,12 +10,16 @@ on:
     paths:
       - "backend/**"
       - "!backend/docs/**"
+      # The contract tests read frontend/src/api/*.ts; a frontend-only change can
+      # declare an endpoint the backend does not serve.
+      - "frontend/src/api/**"
       - ".github/workflows/ci-backend.yml"
   pull_request:
     branches: [main, dev]
     paths:
       - "backend/**"
       - "!backend/docs/**"
+      - "frontend/src/api/**"
       - ".github/workflows/ci-backend.yml"
 
 env:
@@ -105,9 +109,36 @@ jobs:
           done
           alembic upgrade head
 
+      - name: Schema drift (alembic check)
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
+        run: alembic check
+
       - name: Lint
         working-directory: backend
         run: ruff check .
+
+      - name: Architecture contracts (import-linter)
+        working-directory: backend
+        run: lint-imports
+
+      - name: Contract tests (repository root)
+        env:
+          PYTHONPATH: backend
+          DATABASE_URL: postgresql+asyncpg://galleryvault:galleryvault@localhost:5432/galleryvault
+        run: |
+          # Actions' default shell is `bash -e` (no pipefail): without this the
+          # pipeline would report tee's status and swallow a pytest failure.
+          set -o pipefail
+          # Repository-root context so frontend/src/api is visible; the module
+          # skips when it is absent, which would silently drop this gate.
+          test -d frontend/src/api
+          pytest -q -p no:cacheprovider backend/tests/contract -rs | tee /tmp/contract.log
+          if grep -q "skipped" /tmp/contract.log; then
+            echo "contract tests were skipped; refusing to pass" >&2
+            exit 1
+          fi
 
       - name: Test (with coverage gate)
         timeout-minutes: 8

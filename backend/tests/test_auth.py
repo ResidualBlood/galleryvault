@@ -44,14 +44,17 @@ def test_password_hash_and_verify() -> None:
     assert not verify_password("wrong", encoded)
 
 
-def test_verify_login_password_none_uses_default() -> None:
+def test_verify_login_password_none_rejects_default() -> None:
     from galleryvault.auth import verify_login_password
 
-    assert verify_login_password("p1a2s3s4", None) is True
+    # Basic Auth uses this helper: no configured password must never fall back
+    # to the baked-in default.
+    assert verify_login_password("p1a2s3s4", None) is False
+    assert verify_login_password("p1a2s3s4", "") is False
     assert verify_login_password("wrong_password", None) is False
 
 
-def test_default_password_login_flow_and_session(client: TestClient) -> None:
+def test_uninitialized_login_accepts_only_default_password(client: TestClient) -> None:
     from galleryvault.app.main import app
     from galleryvault.app.state import app_state
 
@@ -67,23 +70,18 @@ def test_default_password_login_flow_and_session(client: TestClient) -> None:
     app_state.settings = updated
     app.state.settings = updated
     try:
-        failed = client.post("/login", data={"password": "wrong"}, follow_redirects=False)
-        assert failed.status_code == 303 and "error=1" in failed.headers["location"]
-
-        successful = client.post("/login", data={"password": "p1a2s3s4"}, follow_redirects=False)
+        successful = client.post(
+            "/login", data={"password": "p1a2s3s4"}, follow_redirects=False
+        )
         assert successful.status_code == 303
-        assert "error=1" not in successful.headers.get("location", "")
+        assert successful.headers["location"] == "/"
+        assert "galleryvault_session" in successful.headers.get("set-cookie", "")
+        # Onboarding still forces a password change before the main UI.
+        assert client.get("/api/auth/session").json()["must_change_password"] is True
 
-        cookie_header = successful.headers.get("set-cookie", "")
-        assert "galleryvault_session" in cookie_header
-
-        # Verify session endpoint reflects must_change_password is True
-        cookie_val = cookie_header.split(";")[0]
-        session_resp = client.get("/api/auth/session", headers={"cookie": cookie_val})
-        assert session_resp.status_code == 200
-        data = session_resp.json()
-        assert data.get("authenticated") is True
-        assert data.get("must_change_password") is True
+        failed = client.post("/login", data={"password": "wrong"}, follow_redirects=False)
+        assert failed.status_code == 303
+        assert "error=1" in failed.headers["location"]
     finally:
         app_state.settings = original
         app.state.settings = original
@@ -263,7 +261,8 @@ def test_settings_save_persists_auth_required(
 
     Regression guard: SettingsRequest previously had no ``auth_required`` field,
     so pydantic silently dropped the submitted value and the toggle could never
-    be persisted (dead UI since v1.0.0).
+    be persisted (dead UI since v1.0.0). Since B1-C a security-sensitive change
+    also needs confirmation, hence ``confirm_security_change``.
     """
     from galleryvault.app.routers import settings as settings_router
     from galleryvault.app.state import app_state
@@ -296,7 +295,10 @@ def test_settings_save_persists_auth_required(
     orig_factory = app_state.session_factory
     app_state.session_factory = lambda: Session()
     try:
-        response = client.post("/api/settings", json={"auth_required": False, "page_concurrency": 8})
+        response = client.post(
+            "/api/settings",
+            json={"auth_required": False, "page_concurrency": 8, "confirm_security_change": True},
+        )
         assert response.status_code == 200
         assert saved["auth_required"] is False
         assert saved["page_concurrency"] == 8
@@ -528,10 +530,18 @@ def test_client_ip_unknown_without_client() -> None:
     assert _client_ip(SimpleNamespace(headers={}, client=None)) == "unknown"
 
 
-def test_login_rate_limit_keys_on_x_real_ip(client: TestClient) -> None:
-    """A spoofed X-Real-IP must not reset another bucket's counters."""
+def test_login_rate_limit_keys_on_x_real_ip(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A spoofed X-Real-IP must not reset another bucket's counters.
+
+    The single-admin account backoff is neutralised here: it is global (not
+    per-IP), so it would otherwise turn the fresh 6.6.6.6 bucket into a 429 and
+    hide what this test is about (the per-IP rate window).
+    """
     from galleryvault import auth
 
+    monkeypatch.setattr(auth, "ACCOUNT_FAILURE_THRESHOLD", 10_000)
     original = auth._login_attempts
     original_lock = auth._login_lock
     auth._login_attempts = {}

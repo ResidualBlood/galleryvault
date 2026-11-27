@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock
 
@@ -24,19 +26,52 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-scan_lock = asyncio.Lock()
+# Created lazily on first use rather than at import time: an asyncio.Lock binds
+# to the loop of its first waiter while module import happens before any loop
+# exists, which surfaced as "attached to a different loop" (report 01 P3-10).
+_scan_lock: asyncio.Lock | None = None
+_scan_lock_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_scan_lock() -> asyncio.Lock:
+    """Return the scan lock bound to the current event loop."""
+    global _scan_lock, _scan_lock_loop
+    loop = asyncio.get_running_loop()
+    if _scan_lock is None or _scan_lock_loop is not loop:
+        _scan_lock = asyncio.Lock()
+        _scan_lock_loop = loop
+    return _scan_lock
+
+
+def _normalize_root(root: str) -> str:
+    """Resolve a scan root so ``/library`` and ``/library/`` dedupe to one path."""
+    text = str(root).strip()
+    if not text:
+        return ""
+    try:
+        return str(Path(text).resolve())
+    except OSError:
+        return os.path.normpath(text)
 
 
 def _scan_roots() -> list[str]:
     settings = app_state.settings or get_settings()
-    roots = list(settings.library_roots)
-    if settings.download_root and settings.download_root not in roots:
-        roots.append(settings.download_root)
+    roots: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: str | None) -> None:
+        normalized = _normalize_root(value or "")
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            roots.append(normalized)
+
+    for root in settings.library_roots:
+        _add(root)
+    _add(settings.download_root)
     from .cold_archive import resolve_archive_roots
 
-    for ar in [str(r) for r in resolve_archive_roots()]:
-        if ar and ar not in roots:
-            roots.append(ar)
+    for archive_root in resolve_archive_roots():
+        _add(str(archive_root))
     return roots
 
 
@@ -57,6 +92,27 @@ def scan_summary_message(
         duplicate_gids,
         lang,
     )
+
+
+async def _prune_duplicate_thumbnail_cache(settings: Any) -> int:
+    """Drop ``dup/<hash>`` thumbnails whose copy is no longer a duplicate row."""
+    from .thumbnails import ThumbnailService
+
+    session_factory = _get_background_session_factory()
+    if not session_factory:
+        return 0
+    service = app_state.thumbnail_service
+    if service is None:
+        service = ThumbnailService(settings.thumbnail_cache_dir)
+    async with session_factory() as session:
+        groups = await GalleryRepository(session).list_duplicates()
+    keys = {
+        str(copy.get("key"))
+        for group in groups
+        for copy in (group.get("copies") or [])
+        if copy.get("key")
+    }
+    return await run_in_threadpool(service.prune_dup_cache, keys)
 
 
 async def backfill_image_quality(should_stop: Callable[[], bool] | None = None) -> int:
@@ -100,7 +156,10 @@ async def backfill_image_quality(should_stop: Callable[[], bool] | None = None) 
                     "image quality backfill gdata round failed",
                     extra=log_extra(error=type(exc).__name__),
                 )
-                continue
+                # The cursor has already advanced past this batch; retrying the
+                # remaining batches would silently skip these rows for good.
+                # Stop here so the next scan starts over from the beginning.
+                break
 
         if should_stop is not None and should_stop():
             break
@@ -141,7 +200,7 @@ async def run_scan() -> None:
         return
 
     with bind_log_context(worker="scan"):
-        async with scan_lock, tm.track_task("scan", cancellable=True) as tracker:
+        async with _get_scan_lock(), tm.track_task("scan", cancellable=True) as tracker:
             persisted = 0
             scanned = 0
             success = 0
@@ -226,31 +285,44 @@ async def run_scan() -> None:
                 if not tm.is_cancelled("scan"):
                     candidates = None
                     expunged = 0
-                    async with session_factory() as session:
-                        repo = GalleryRepository(session)
-                        if isinstance(getattr(repo, "expunge_missing", None), Mock) or not hasattr(repo, "fetch_expunge_candidates"):
-                            expunged = await repo.expunge_missing(
-                                _scan_roots(), service.seen_path_hashes
-                            )
-                        else:
-                            candidates = await repo.fetch_expunge_candidates()
-
-                    if not tm.is_cancelled("scan") and candidates is not None:
-                        missing_ids = await run_in_threadpool(
-                            GalleryRepository.find_missing_ids,
-                            candidates,
-                            _scan_roots(),
-                            service.seen_path_hashes,
+                    scan_incomplete = bool(getattr(service, "scan_incomplete", False))
+                    if scan_incomplete:
+                        # A root was missing/unreadable or yielded nothing: the
+                        # seen-path set does not cover the library, so expunging
+                        # would mark healthy rows as deleted.
+                        incomplete_roots = sorted(getattr(service, "incomplete_roots", ()))
+                        logger.warning(
+                            "library scan incomplete; skipping expunge",
+                            extra=log_extra(incomplete_roots=incomplete_roots),
                         )
-                        if missing_ids and not tm.is_cancelled("scan"):
-                            async with session_factory() as session, session.begin():
-                                expunged = await GalleryRepository(session).mark_expunged(missing_ids)
-                        else:
-                            expunged = 0
+                        tracker.update(scan_incomplete=True, incomplete_roots=incomplete_roots)
+                    else:
+                        async with session_factory() as session:
+                            repo = GalleryRepository(session)
+                            if isinstance(getattr(repo, "expunge_missing", None), Mock) or not hasattr(repo, "fetch_expunge_candidates"):
+                                expunged = await repo.expunge_missing(
+                                    _scan_roots(), service.seen_path_hashes
+                                )
+                            else:
+                                candidates = await repo.fetch_expunge_candidates()
+
+                        if not tm.is_cancelled("scan") and candidates is not None:
+                            missing_ids = await run_in_threadpool(
+                                GalleryRepository.find_missing_ids,
+                                candidates,
+                                _scan_roots(),
+                                service.seen_path_hashes,
+                            )
+                            if missing_ids and not tm.is_cancelled("scan"):
+                                async with session_factory() as session, session.begin():
+                                    expunged = await GalleryRepository(session).mark_expunged(missing_ids)
+                            else:
+                                expunged = 0
                     tracker.update(expunged=expunged)
 
                     if not tm.is_cancelled("scan"):
                         try:
+                            records: list[dict[str, Any]] = []
                             if service.last_duplicates:
                                 async with session_factory() as session:
                                     meta = await GalleryRepository(session).metadata_map(
@@ -263,14 +335,19 @@ async def run_scan() -> None:
                                                 {"namespace": t["namespace"], "name": t["name"]}
                                                 for t in tags
                                             ]
-                                if not tm.is_cancelled("scan"):
+                                records = [group.record() for group in service.last_duplicates]
+                            if not tm.is_cancelled("scan"):
+                                # Single source of truth (T5.3): the scan result
+                                # lands in ``duplicate_groups`` (``kind='same_gid'``);
+                                # ``duplicate_records`` is no longer written.
+                                try:
                                     async with session_factory() as session, session.begin():
-                                        await GalleryRepository(session).sync_duplicates(
-                                            service.last_duplicates
-                                        )
-                            else:
-                                async with session_factory() as session, session.begin():
-                                    await GalleryRepository(session).sync_duplicates([])
+                                        await GalleryRepository(session).sync_duplicates(records)
+                                except Exception as exc:  # noqa: BLE001
+                                    logger.warning(
+                                        "duplicate sync failed",
+                                        extra=log_extra(error=type(exc).__name__),
+                                    )
                         except Exception as exc:  # noqa: BLE001
                             logger.warning(
                                 "duplicate sync failed", extra=log_extra(error=type(exc).__name__)
@@ -279,6 +356,20 @@ async def run_scan() -> None:
                             duplicates=len(service.last_duplicates),
                             duplicate_gids=[group.gid for group in service.last_duplicates],
                         )
+
+                    if not tm.is_cancelled("scan"):
+                        try:
+                            pruned = await _prune_duplicate_thumbnail_cache(settings)
+                            if pruned:
+                                logger.info(
+                                    "pruned orphan duplicate thumbnails",
+                                    extra=log_extra(count=pruned),
+                                )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning(
+                                "duplicate thumbnail cleanup failed",
+                                extra=log_extra(error=type(exc).__name__),
+                            )
 
                     if not tm.is_cancelled("scan") and settings.auto_sync_tags:
                         from .tag_sync_worker import enqueue_tag_sync
@@ -320,10 +411,39 @@ async def run_scan() -> None:
                         }
                         tracker.update(last=last_dict)
                         logger.info("library scan persisted", extra=log_extra(**last_dict))
-                        await __import__("galleryvault.services.series", fromlist=["rebuild_series_groups"]).rebuild_series_groups()
+                        # Series rebuild is best-effort: a failure (or a rebuild
+                        # already running from the HTTP route) must not skip the
+                        # cross-gid dedup scan below, and must not turn the scan
+                        # result into an error.
+                        try:
+                            series_module = __import__(
+                                "galleryvault.services.series",
+                                fromlist=["rebuild_series_groups_guarded"],
+                            )
+                            series_stats = await series_module.rebuild_series_groups_guarded(
+                                session_factory
+                            )
+                            if series_stats is None:
+                                logger.info(
+                                    "series rebuild skipped",
+                                    extra=log_extra(reason="rebuild_already_running"),
+                                )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning(
+                                "series rebuild failed",
+                                extra=log_extra(
+                                    error=type(exc).__name__, message=str(exc)
+                                ),
+                            )
                         if not tm.is_cancelled("scan"):
                             try:
-                                await __import__("galleryvault.services.duplicates", fromlist=["scan_library_cross_gid_duplicates"]).scan_library_cross_gid_duplicates(session_factory=session_factory)
+                                duplicates_module = __import__(
+                                    "galleryvault.services.duplicates",
+                                    fromlist=["scan_library_cross_gid_groups_locked"],
+                                )
+                                await duplicates_module.scan_library_cross_gid_groups_locked(
+                                    session_factory=session_factory, wait=True
+                                )
                             except Exception as exc:  # noqa: BLE001
                                 logger.warning(
                                     "cross-gid duplicates scan failed",

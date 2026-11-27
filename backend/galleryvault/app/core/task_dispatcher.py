@@ -139,13 +139,9 @@ class TaskDispatcher:
                         )
                     except TypeError:
                         tm.record_task(task_type, status, message, payload)
-            if hasattr(tm, "persist_history"):
-                res = tm.persist_history()
-                if hasattr(res, "__await__"):
-                    await res
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Failed to record or persist task history",
+                "Failed to record task history",
                 extra=log_extra(task_type=task_type, error=str(exc)),
             )
 
@@ -203,13 +199,3 @@ class TaskDispatcher:
                 details=context_details,
             )
             raise
-
-    def get_active_tasks(self) -> set[asyncio.Task[Any]]:
-        """Return a snapshot of currently running active tasks."""
-        return set(self._active_tasks)
-
-    def cancel_all(self) -> None:
-        """Cancel all currently tracked active tasks."""
-        for task in list(self._active_tasks):
-            if not task.done():
-                task.cancel()

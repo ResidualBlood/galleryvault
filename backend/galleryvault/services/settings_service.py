@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
+from ..auth import DEFAULT_PASSWORD
 from ..config import get_settings, library_root_warnings, normalize_archive_roots
 from ..logging import log_extra
 from ..secrets import (
@@ -52,6 +53,36 @@ def _get_app_state() -> Any | None:
         return app_state
     except (ImportError, AttributeError):
         return None
+
+
+_RETIRED_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _worker_running(app_st: Any, name: str) -> bool:
+    """Return whether a supervised background worker is currently running.
+
+    Runtime workers are owned by ``app_state.workers``.  The ``<name>_task``
+    extra lookup keeps pre-registry test doubles working until the remaining
+    ``AppState.extra`` keys are migrated (T11.2).
+    """
+    workers = getattr(app_st, "workers", None)
+    if workers is not None and workers.is_running(name):
+        return True
+    extra = getattr(app_st, "extra", None)
+    legacy = extra.get(f"{name}_task") if isinstance(extra, dict) else None
+    return legacy is not None and not legacy.done()
+
+
+def _spawn_retired_task(coro: Any) -> None:
+    """Spawn a drain coroutine while holding a strong reference (RUF006)."""
+    try:
+        task = asyncio.get_running_loop().create_task(coro)
+    except RuntimeError:
+        if hasattr(coro, "close"):
+            coro.close()
+        return
+    _RETIRED_TASKS.add(task)
+    task.add_done_callback(_RETIRED_TASKS.discard)
 
 
 def is_public_site(url: str | None) -> bool:
@@ -118,6 +149,7 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
         "title_display",
         "favorites_categories",
         "download_favorites_enabled",
+        "favorites_cloud_open",
         "favorites_poll_interval_minutes",
         "telegram_bot_token",
         "telegram_chat_ids",
@@ -133,10 +165,15 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
         "trusted_proxies",
         "tag_translation_update_interval_minutes",
         "global_paused",
+        "online_reader_concurrency",
+        "online_cache_max_mb",
     }
     filtered = {k: v for k, v in values.items() if k in allowed and v is not None}
     if "exhentai_cookies" in filtered:
         c = filtered["exhentai_cookies"]
+        # Runtime state must hold plaintext; accept at-rest ciphertext defensively.
+        if is_encrypted(c):
+            c = decrypt_json_or_value(c)
         if isinstance(c, str):
             try:
                 import json
@@ -146,6 +183,8 @@ def update_runtime_settings(values: dict[str, Any]) -> None:
         if not isinstance(c, dict):
             c = {}
         filtered["exhentai_cookies"] = {str(k): str(v) for k, v in c.items()}
+    if is_encrypted(filtered.get("telegram_bot_token")):
+        filtered["telegram_bot_token"] = decrypt_or_plain(filtered["telegram_bot_token"])
     if "archive_roots" in filtered:
         filtered["archive_roots"] = normalize_archive_roots(filtered["archive_roots"])
         filtered["cold_storage_root"] = (
@@ -238,10 +277,7 @@ async def refresh_services() -> None:
 
             tg_task = spawn_task(_drain_telegram(old_telegram), "drain retired telegram")
             if tg_task is None:
-                try:
-                    asyncio.create_task(_drain_telegram(old_telegram))
-                except Exception:  # noqa: BLE001, S110
-                    pass
+                _spawn_retired_task(_drain_telegram(old_telegram))
 
     # 2. Build new client and retire old EhClient gracefully
     client = EhClient(settings, max_concurrency=settings.exhentai_max_concurrency)
@@ -281,10 +317,7 @@ async def refresh_services() -> None:
 
         c_task = spawn_task(_drain_eh_client(old_client), "drain retired eh_client")
         if c_task is None:
-            try:
-                asyncio.create_task(_drain_eh_client(old_client))
-            except Exception:  # noqa: BLE001, S110
-                pass
+            _spawn_retired_task(_drain_eh_client(old_client))
 
     downloader = Downloader(
         (lambda: app_st.eh_client) if app_st is not None else client,
@@ -309,18 +342,18 @@ async def refresh_services() -> None:
 
     sync_state()
     start_telegram_bot()
-    from ..app.lifespan import ensure_translation_updater
+    from .tag_sync_worker import translation_update_loop
 
-    ensure_translation_updater()
+    workers = getattr(app_st, "workers", None)
+    if workers is not None:
+        workers.ensure("translation_updater", translation_update_loop, restart_policy="always")
 
-    dl_task = app_st.extra.get("download_worker_task")
-    if dl_task is not None and not dl_task.done():
+    if _worker_running(app_st, "download_worker"):
         from .download_worker import adjust_download_concurrency
 
         adjust_download_concurrency(settings.download_concurrency)
 
-    ts_task = app_st.extra.get("tag_sync_worker_task")
-    if ts_task is not None and not ts_task.done():
+    if _worker_running(app_st, "tag_sync_worker"):
         from .tag_sync_worker import adjust_tag_sync_concurrency
 
         adjust_tag_sync_concurrency(settings.tag_sync_concurrency)
@@ -331,7 +364,7 @@ def settings_public() -> dict[str, Any]:
     current = (app_st.settings if app_st and getattr(app_st, "settings", None) else None) or get_settings()
     auth_hash_configured = bool(current.auth_password_hash or current.auth_password)
     must_change_password = bool(
-        current.auth_required and (not auth_hash_configured or current.auth_password == "p1a2s3s4")
+        current.auth_required and (not auth_hash_configured or current.auth_password == DEFAULT_PASSWORD)
     )
     return {
         "library_roots": current.library_roots,
@@ -362,6 +395,7 @@ def settings_public() -> dict[str, Any]:
         "download_max_retries": 10,
         "favorites_categories": current.favorites_categories,
         "download_favorites_enabled": current.download_favorites_enabled,
+        "favorites_cloud_open": current.favorites_cloud_open,
         "favorites_poll_interval_minutes": current.favorites_poll_interval_minutes,
         "telegram_bot_configured": bool(current.telegram_bot_token),
         "telegram_chat_ids": current.telegram_chat_ids,
@@ -371,9 +405,12 @@ def settings_public() -> dict[str, Any]:
         "auto_sync_tags": current.auto_sync_tags,
         "tag_sync_interval_seconds": current.tag_sync_interval_seconds,
         "tag_sync_concurrency": current.tag_sync_concurrency,
+        "tag_translation_update_interval_minutes": current.tag_translation_update_interval_minutes,
         "generate_thumbnails": current.generate_thumbnails,
         "duplicate_policy": current.duplicate_policy,
         "thumbnail_cache_dir": current.thumbnail_cache_dir,
+        "online_reader_concurrency": current.online_reader_concurrency,
+        "online_cache_max_mb": current.online_cache_max_mb,
         "auth_required": current.auth_required,
         "auth_hash_configured": auth_hash_configured,
         "must_change_password": must_change_password,
@@ -399,35 +436,6 @@ class SettingsService(BaseService):
         async with self.transaction():
             persisted = await self.uow.settings.get()
             return decrypt_user_settings(persisted)
-
-    async def update_settings(
-        self,
-        values: dict[str, Any],
-        refresh: bool = True,
-    ) -> dict[str, Any]:
-        """Update user settings, persist to database, sync runtime state and reload services."""
-        # 1. Update runtime memory state
-        update_runtime_settings(values)
-
-        # 2. Persist to database
-        async with self.transaction():
-            current_persisted = await self.uow.settings.get()
-            updated_dict = dict(current_persisted)
-            for k, v in values.items():
-                if v is not None:
-                    updated_dict[k] = v
-            await self.uow.settings.save(updated_dict)
-
-        # 3. Optional reload of services
-        if refresh:
-            await self.reload_services()
-
-        return self.get_public_settings()
-
-    async def get_runtime_auth(self) -> dict[str, Any]:
-        """Fetch non-editable runtime auth settings."""
-        async with self.transaction():
-            return await self.uow.settings.get_extra()
 
     async def save_runtime_auth(self, value: dict[str, Any]) -> None:
         """Persist non-editable runtime settings (e.g. password hash)."""

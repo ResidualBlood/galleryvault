@@ -567,7 +567,7 @@ async def test_fetch_image_limits_uses_home_php_and_fallback(monkeypatch):
 @pytest.mark.asyncio
 async def test_quota_includes_image_limits(monkeypatch):
     """GET /api/quota must return image_limit alongside GP, cached."""
-    from galleryvault.app.routers import tasks as tasks_mod
+    from galleryvault.services import quota as quota_mod
 
     app_state.extra["gp_cache"] = {}
     # Mock EhClient
@@ -580,13 +580,13 @@ async def test_quota_includes_image_limits(monkeypatch):
     app_state.eh_client = FakeClient()
     app_state.settings = get_settings()
     # Clear lock
-    tasks_mod._GP_LOCK = None
-    result = await tasks_mod.get_quota()
+    quota_mod._GP_LOCK = None
+    result = await quota_mod.get_quota()
     assert result["gp"] == 12345
     assert result["image_limit"] == {"current": 800, "limit": 5000}
     assert result["image_limits"] == {"current": 800, "limit": 5000}
     # Second call should be cached
-    result2 = await tasks_mod.get_quota()
+    result2 = await quota_mod.get_quota()
     assert result2["cached"] is True
     # Cleanup
     app_state.eh_client = None
@@ -597,7 +597,7 @@ async def test_quota_includes_image_limits(monkeypatch):
 async def test_quota_image_limit_failure_uses_short_ttl(monkeypatch):
     from datetime import UTC, datetime, timedelta
 
-    from galleryvault.app.routers import tasks as tasks_mod
+    from galleryvault.services import quota as quota_mod
 
     il_calls: list[int] = []
     gp_calls: list[int] = []
@@ -614,16 +614,16 @@ async def test_quota_image_limit_failure_uses_short_ttl(monkeypatch):
     app_state.extra["gp_cache"] = {}
     app_state.eh_client = FakeClient()
     app_state.settings = get_settings()
-    tasks_mod._GP_LOCK = None
+    quota_mod._GP_LOCK = None
     try:
-        result = await tasks_mod.get_quota()
+        result = await quota_mod.get_quota()
         assert result["gp"] == 99
         assert result["image_limit"] is None
         assert result["cached"] is False
         assert len(il_calls) == 1
         assert len(gp_calls) == 1
 
-        result2 = await tasks_mod.get_quota()
+        result2 = await quota_mod.get_quota()
         assert result2["cached"] is True
         assert result2["gp"] == 99
         assert result2["image_limit"] is None
@@ -632,7 +632,7 @@ async def test_quota_image_limit_failure_uses_short_ttl(monkeypatch):
 
         cache = app_state.extra["gp_cache"]
         cache["il_checked_at"] = (datetime.now(UTC) - timedelta(seconds=61)).isoformat()
-        result3 = await tasks_mod.get_quota()
+        result3 = await quota_mod.get_quota()
         assert result3["gp"] == 99
         assert len(il_calls) == 2
         assert len(gp_calls) == 1
@@ -645,7 +645,7 @@ async def test_quota_image_limit_failure_uses_short_ttl(monkeypatch):
 async def test_quota_image_limit_none_uses_short_ttl(monkeypatch):
     from datetime import UTC, datetime, timedelta
 
-    from galleryvault.app.routers import tasks as tasks_mod
+    from galleryvault.services import quota as quota_mod
 
     il_calls: list[int] = []
     gp_calls: list[int] = []
@@ -661,9 +661,9 @@ async def test_quota_image_limit_none_uses_short_ttl(monkeypatch):
     app_state.extra["gp_cache"] = {}
     app_state.eh_client = FakeClient()
     app_state.settings = get_settings()
-    tasks_mod._GP_LOCK = None
+    quota_mod._GP_LOCK = None
     try:
-        result = await tasks_mod.get_quota()
+        result = await quota_mod.get_quota()
         assert result["gp"] == 99
         assert result["image_limit"] is None
         assert result["cached"] is False
@@ -671,7 +671,7 @@ async def test_quota_image_limit_none_uses_short_ttl(monkeypatch):
         assert len(il_calls) == 1
         assert len(gp_calls) == 1
 
-        result2 = await tasks_mod.get_quota()
+        result2 = await quota_mod.get_quota()
         assert result2["cached"] is True
         assert result2["image_limit"] is None
         assert len(il_calls) == 1
@@ -679,7 +679,7 @@ async def test_quota_image_limit_none_uses_short_ttl(monkeypatch):
 
         cache = app_state.extra["gp_cache"]
         cache["il_checked_at"] = (datetime.now(UTC) - timedelta(seconds=61)).isoformat()
-        result3 = await tasks_mod.get_quota()
+        result3 = await quota_mod.get_quota()
         assert result3["gp"] == 99
         assert len(il_calls) == 2
         assert len(gp_calls) == 1

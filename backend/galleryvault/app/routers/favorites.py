@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import re
+import tempfile  # noqa: F401 - kept as a patch target for tests
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -16,20 +18,31 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from ...db.models import FavoritesMonitor
 from ...db.repository import (
     FavoritesRepository,
     GalleryRepository,
     GalleryUpdatesRepository,
 )
-from ...db.session import safe_transaction
+from ...fsutil import write_atomic
 from ...logging import log_extra
-from ...metadata.sidecar import normalize_posted, normalize_tags
+from ...metadata.sidecar import normalize_tags
 from ...scanners.base import CATEGORIES
+from ...services import favorites as favorites_service
 from ...services.deletion import delete_galleries_local
 from ...services.download_prepare import prepare_galleries
+from ...services.duplicate_groups import (  # noqa: F401  # test patch points
+    list_groups,
+    set_status_by_key,
+)
 from ...services.eh_client import EhClientError, FavoriteData, GalleryGoneError
 from ...services.favorite_service import FavoriteService
+from ...services.favorites_mutations import (
+    MutationDeps,
+    add_favorites,
+    move_favorites,
+    remove_favorites,
+    set_favorite_note,
+)
 from ...services.favorites_worker import (
     FavoriteDownloadQueue,
     _cover_cache_file,
@@ -37,7 +50,6 @@ from ...services.favorites_worker import (
     favorite_counts_cached,
     favorite_size_sync,
     favorites_metadata,
-    run_duplicates_scan,
     run_favorites_check,
 )
 from ...services.messages import GONE_DETAIL
@@ -49,39 +61,73 @@ from ..dependencies import (
     get_current_settings,
     get_eh_client_manager,
     get_favorite_service,
+    get_leased_eh_client,
     get_session,
     get_task_manager,
     image_content_type,
+    release_session,
     resolve_display_title,
     resolve_session,
     spawn_task,
 )
+from ..exceptions import EhClientUnavailableError
+from ..params import (
+    _IMAGE_QUALITY,
+    _dedupe_tags,
+    _parse_posted,
+    _parse_tag_filter,
+    _resolve_search_tokens,
+    _tag_count,
+    _tags_for_galleries,
+)
 from ..schemas import (
     ArchivePreviewRequest,
     DownloadSelectedRequest,
-    DuplicateIgnoreRequest,
-    FavoriteCategoryRequest,
     FavoriteNoteRequest,
     FavoritesAddRequest,
     FavoritesMoveRequest,
     FavoritesRemoveRequest,
 )
 from ..state import app_state
-from .galleries import (
-    _IMAGE_QUALITY,
-    _dedupe_tags,
-    _parse_posted,
-    _parse_tag_filter,
-    _resolve_search_tokens,
+from . import maintain
+from .maintain.favorite_duplicates import (  # noqa: F401  # re-exported handlers
+    duplicates_ignore,
+    duplicates_ignored_list,
+    duplicates_scan,
+    duplicates_status,
+    duplicates_unignore,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _context_accepts_settings(context: Any) -> bool:
+    """Return whether ``context`` can be called with a ``settings`` keyword."""
+    if context is None:
+        return False
+    try:
+        parameters = inspect.signature(context).parameters
+    except (TypeError, ValueError):
+        return False
+    if "settings" in parameters:
+        return True
+    return any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+
+
 class _EhClientManagerWrapper:
     def __init__(self, target: Any) -> None:
         self._target = target
+        # Decide the calling convention once, up front: inspecting the target
+        # signature keeps the ``except TypeError`` scope away from the yielded
+        # body so a caller-raised TypeError is never mistaken for a signature
+        # mismatch.
+        self._context_accepts_settings = _context_accepts_settings(
+            getattr(target, "client_context", None)
+        )
 
     def get_client(self) -> Any:
         try:
@@ -94,14 +140,13 @@ class _EhClientManagerWrapper:
     @asynccontextmanager
     async def client_context(self, settings: Any = None) -> AsyncIterator[Any]:
         if hasattr(self._target, "client_context"):
-            try:
-                async with self._target.client_context() as client:
-                    yield client
-                    return
-            except TypeError:
-                async with self._target.client_context(settings=settings) as client:
-                    yield client
-                    return
+            if self._context_accepts_settings:
+                context = self._target.client_context(settings=settings)
+            else:
+                context = self._target.client_context()
+            async with context as client:
+                yield client
+            return
         active = getattr(self._target, "get_client", lambda: None)() or app_state.eh_client
         if active is not None:
             yield active
@@ -118,6 +163,24 @@ def _resolve_eh_client_manager(mgr: Any) -> Any:
     if isinstance(mgr, Depends) or not hasattr(mgr, "client_context"):
         mgr = get_eh_client_manager()
     return _EhClientManagerWrapper(mgr)
+
+
+def _resolve_leased_eh_client(client: Any) -> Any:
+    """Return the request's leased ExHentai client.
+
+    FastAPI injects the client through ``get_leased_eh_client`` so a hot client
+    rebuild cannot retire the instance an in-flight request is still using.
+    Direct calls (tests/scripts) fall back to the managed active client instead
+    of reading ``app_state.eh_client`` directly.
+    """
+    from fastapi.params import Depends
+
+    if client is not None and not isinstance(client, Depends):
+        return client
+    try:
+        return get_eh_client_manager().get_client()
+    except EhClientUnavailableError as exc:
+        raise HTTPException(status_code=503, detail="ExHentai client is unavailable") from exc
 
 
 def _record_favorites_remove_log(
@@ -150,7 +213,6 @@ def _record_favorites_remove_log(
         done=deleted_local_galleries,
         total=len(gids),
     )
-    spawn_task(tm.persist_history(), "persist task history")
 
 
 def _record_favorites_move_log(
@@ -177,7 +239,11 @@ def _record_favorites_move_log(
         done=local_moved,
         total=len(gids),
     )
-    spawn_task(tm.persist_history(), "persist task history")
+
+
+def _clip_tags(tags: list[dict[str, str]], tags_limit: int | None) -> list[dict[str, str]]:
+    limit = tags_limit if isinstance(tags_limit, int) else 4
+    return tags if limit <= 0 else tags[:limit]
 
 
 @router.get("/api/favorites/{favcat}/items")
@@ -204,6 +270,7 @@ async def favorite_items(
     uploader: str | None = None,
     image_quality: str | None = None,
     min_local_rating: int | None = Query(default=None, ge=1, le=5),
+    tags_limit: int | None = Query(default=None, ge=0, le=64),
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
@@ -222,7 +289,7 @@ async def favorite_items(
     else:
         image_quality = None
     posted_from_dt = _parse_posted(posted_from)
-    posted_to_dt = _parse_posted(posted_to)
+    posted_to_dt = _parse_posted(posted_to, upper=True)
     if category == "":
         category = None
     if category and category not in CATEGORIES:
@@ -276,8 +343,10 @@ async def favorite_items(
             image_quality=image_quality,
             min_local_rating=min_local_rating,
         )
-        tag_map = await GalleryRepository(session).tags_for_galleries(
-            [g.id for _, g in rows if (g is not None) and g.id is not None]
+        tag_map = await _tags_for_galleries(
+            GalleryRepository(session),
+            [g.id for _, g in rows if (g is not None) and g.id is not None],
+            tags_limit,
         )
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
@@ -310,6 +379,7 @@ async def favorite_items(
                 }
                 for ns, name in tag_map.get(gallery.id, [])
             ]
+            tag_count = _tag_count(tag_map, gallery.id)
         else:
             meta = metadata.get(item.gid, {})
             title = resolve_display_title(
@@ -325,13 +395,15 @@ async def favorite_items(
                 else None
             )
             file_size = meta.get("file_size") or item.file_size
+            cloud_tags = normalize_tags(meta.get("tags", []))
+            tag_count = len(cloud_tags)
             tags = [
                 {
                     "namespace": t["namespace"],
                     "name": t["name"],
                     "display": translated_tag(t["namespace"], t["name"])[1],
                 }
-                for t in normalize_tags(meta.get("tags", []))
+                for t in _clip_tags(cloud_tags, tags_limit)
             ]
         items.append(
             {
@@ -353,6 +425,7 @@ async def favorite_items(
                 "is_local": gallery is not None,
                 "note": getattr(item, "note", None),
                 "tags": tags,
+                "tag_count": tag_count,
             }
         )
     return {
@@ -368,6 +441,7 @@ async def favorite_items(
 async def archives_preview(
     body: ArchivePreviewRequest,
     session: AsyncSession = Depends(get_session),  # noqa: B008
+    leased_client: Any = Depends(get_leased_eh_client),  # noqa: B008
 ) -> dict[str, object]:
     """Read-only archive info for a set of gids (no GP is charged)."""
     session = await resolve_session(session, fallback_dep=get_session)
@@ -375,9 +449,6 @@ async def archives_preview(
     gids = list(dict.fromkeys([*(body.gids or []), *item_tokens.keys()]))
     if not gids:
         raise HTTPException(status_code=422, detail="no galleries selected")
-    client = app_state.eh_client
-    if client is None:
-        raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
     try:
         detail = await FavoritesRepository(session).favorite_items_detail_by_gids(gids)
         if len(detail) < len(gids):
@@ -407,6 +478,12 @@ async def archives_preview(
         if item.title:
             entry["title"] = item.title
         detail[gid] = entry
+
+    # All DB reads are done; release the pooled connection before the ExHentai
+    # network calls (metadata preparation, archive info, GP balance).
+    await release_session(session)
+
+    client = _resolve_leased_eh_client(leased_client)
 
     pairs: list[tuple[int, str]] = []
     for gid in gids:
@@ -578,21 +655,6 @@ router.add_api_route(
 )
 
 
-@router.post("/api/favorites/sync")
-async def favorites_sync(
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    client = app_state.eh_client
-    if client is None:
-        raise HTTPException(status_code=503, detail="ExHentai client is unavailable")
-    try:
-        categories = await FavoritesRepository(session).categories()
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    return {"status": "ok", "categories": len(categories)}
-
-
 @router.post("/api/favorites/remove")
 async def favorites_remove(
     body: FavoritesRemoveRequest,
@@ -601,64 +663,30 @@ async def favorites_remove(
     eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    if not body.gids:
-        raise HTTPException(status_code=422, detail="no galleries selected")
-    gids = list(dict.fromkeys(body.gids))
-    cloud_failed: list[int] = []
-    cloud_removed = 0
-    cloud_ok = True
+    eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
     settings = get_current_settings()
-    try:
-        async with eh_client_mgr.client_context(settings=settings) as client:
-            cloud_failed = await client.remove_favorites(gids)
-        cloud_removed = len(gids) - len(cloud_failed)
-        cloud_ok = not cloud_failed
-    except Exception as exc:  # noqa: BLE001
-        cloud_ok = False
-        cloud_failed = list(gids)
-        logger.warning("cloud favorite removal failed", extra=log_extra(error=type(exc).__name__))
-
-    successful_gids = [g for g in gids if g not in set(cloud_failed)]
-    local_removed = 0
-    deleted_local_galleries = 0
-    failed_deletions: list[str] = []
-    try:
-        gallery_ids: list[int] = []
-        if successful_gids and (body.delete_local or body.delete_files):
-            mapping = await FavoritesRepository(session).galleries_for_gids(
-                successful_gids
-            )
-            gallery_ids = [gid for gid in mapping.values() if gid is not None]
-
-            if gallery_ids:
-                results = await delete_galleries_local(
-                    gallery_ids, delete_files=True, delete_all_copies=body.delete_all_copies
-                )
-                deleted_local_galleries = sum(1 for r in results if r.get("db_removed"))
-                for r in results:
-                    failed_deletions.extend(r.get("failed_paths", []))
-
-        if successful_gids:
-            async with safe_transaction(session):
-                local_removed = await FavoritesRepository(session).remove_gids(
-                    successful_gids
-                )
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-
+    deps = MutationDeps(
+        favorites_repo=FavoritesRepository,
+        gallery_repo=GalleryRepository,
+        delete_local=delete_galleries_local,
+        release_session=release_session,
+        logger=logger,
+    )
+    result = await remove_favorites(
+        body,
+        session=session,
+        eh_client_mgr=eh_client_mgr,
+        settings=settings,
+        deps=deps,
+    )
     if body.delete_local or body.delete_files:
         _record_favorites_remove_log(
-            gids, deleted_local_galleries, failed_deletions, cloud_failed
+            result["gids"],
+            result["deleted_local_galleries"],
+            result["failed_deletions"],
+            result["cloud_failed"],
         )
-    return {
-        "gids": gids,
-        "cloud_ok": cloud_ok,
-        "cloud_removed": cloud_removed,
-        "cloud_failed": cloud_failed,
-        "local_removed": local_removed,
-        "deleted_local_galleries": deleted_local_galleries,
-        "failed_deletions": failed_deletions,
-    }
+    return result
 
 
 @router.post("/api/favorites/move")
@@ -670,44 +698,28 @@ async def favorites_move(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
-    if not body.gids:
-        raise HTTPException(status_code=422, detail="no galleries selected")
-    gids = list(dict.fromkeys(body.gids))
-    cloud_failed: list[int] = []
-    cloud_moved = 0
-    cloud_ok = True
     settings = get_current_settings()
-    try:
-        async with eh_client_mgr.client_context(settings=settings) as client:
-            cloud_failed = await client.move_favorites(gids, body.target_favcat)
-        cloud_moved = len(gids) - len(cloud_failed)
-        cloud_ok = not cloud_failed
-    except Exception as exc:  # noqa: BLE001
-        cloud_ok = False
-        cloud_failed = list(gids)
-        logger.warning("cloud favorite move failed", extra=log_extra(error=type(exc).__name__))
-
-    successful_gids = [g for g in gids if g not in set(cloud_failed)]
-    local_moved = 0
-    if successful_gids:
-        try:
-            async with safe_transaction(session):
-                local_moved = await FavoritesRepository(session).move_gids(
-                    successful_gids, body.target_favcat
-                )
-        except SQLAlchemyError as exc:
-            raise db_error(exc) from exc
-
-    _record_favorites_move_log(gids, body.target_favcat, cloud_failed, local_moved)
-
-    return {
-        "gids": gids,
-        "target_favcat": body.target_favcat,
-        "cloud_ok": cloud_ok,
-        "cloud_moved": cloud_moved,
-        "cloud_failed": cloud_failed,
-        "local_moved": local_moved,
-    }
+    deps = MutationDeps(
+        favorites_repo=FavoritesRepository,
+        gallery_repo=GalleryRepository,
+        delete_local=delete_galleries_local,
+        release_session=release_session,
+        logger=logger,
+    )
+    result = await move_favorites(
+        body,
+        session=session,
+        eh_client_mgr=eh_client_mgr,
+        settings=settings,
+        deps=deps,
+    )
+    _record_favorites_move_log(
+        result["gids"],
+        result["target_favcat"],
+        result["cloud_failed"],
+        result["local_moved"],
+    )
+    return result
 
 
 def _record_favorites_add_log(
@@ -734,7 +746,6 @@ def _record_favorites_add_log(
         done=local_added,
         total=len(gids),
     )
-    spawn_task(tm.persist_history(), "persist task history")
 
 
 @router.post("/api/favorites/add")
@@ -746,141 +757,28 @@ async def favorites_add(
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
-    if not body.items:
-        raise HTTPException(status_code=422, detail="no galleries selected")
-
-    items_to_add: list[dict[str, Any]] = []
-    seen_gids: set[int] = set()
-    for item in body.items:
-        if isinstance(item, dict) and "gid" in item:
-            try:
-                gid = int(item["gid"])
-                if gid not in seen_gids:
-                    seen_gids.add(gid)
-                    items_to_add.append(
-                        {
-                            "gid": gid,
-                            "token": item.get("token"),
-                            "title": item.get("title"),
-                            "note": item.get("note", body.note),
-                        }
-                    )
-            except (ValueError, TypeError):
-                pass
-
-    if not items_to_add:
-        raise HTTPException(status_code=422, detail="no valid galleries selected")
-
-    missing_token_gids = [it["gid"] for it in items_to_add if not it.get("token")]
-    if missing_token_gids:
-        try:
-            gallery_repo = GalleryRepository(session)
-            galleries = await gallery_repo.find_by_gids(missing_token_gids)
-            g_map = {g.gid: g for g in galleries if g.gid is not None}
-
-            remaining = [g for g in missing_token_gids if g not in g_map]
-            gm_map: dict[int, Any] = {}
-            if remaining:
-                for rem_gid in remaining:
-                    meta_dict = await gallery_repo.metadata_for_gid(int(rem_gid))
-                    if meta_dict and meta_dict.get("gid"):
-                        gm_map[int(meta_dict["gid"])] = meta_dict
-
-            for it in items_to_add:
-                gid = it["gid"]
-                if gid in g_map:
-                    g = g_map[gid]
-                    if not it.get("token"):
-                        it["token"] = g.token
-                    if not it.get("title"):
-                        it["title"] = g.title
-                elif gid in gm_map:
-                    gm = gm_map[gid]
-                    if not it.get("token"):
-                        it["token"] = gm.get("token")
-                    if not it.get("title"):
-                        it["title"] = gm.get("title")
-        except SQLAlchemyError as exc:
-            raise db_error(exc) from exc
-
-    valid_pairs: list[tuple[int, str]] = []
-    missing_token_failed: list[int] = []
-    item_map = {it["gid"]: it for it in items_to_add}
-    for it in items_to_add:
-        if it.get("token"):
-            valid_pairs.append((it["gid"], str(it["token"])))
-        else:
-            missing_token_failed.append(it["gid"])
-
-    cloud_failed: list[int] = list(missing_token_failed)
-    cloud_added = 0
-    cloud_ok = True
     settings = get_current_settings()
-
-    if valid_pairs:
-        try:
-            async with eh_client_mgr.client_context(settings=settings) as client:
-                cf = await client.add_favorites(valid_pairs, body.target_favcat, note=body.note)
-            cloud_failed.extend(cf)
-            cloud_added = len(valid_pairs) - len(cf)
-            cloud_ok = not cloud_failed
-        except Exception as exc:  # noqa: BLE001
-            cloud_ok = False
-            logger.warning("cloud favorite add failed", extra=log_extra(error=type(exc).__name__))
-            failed_set = set(cloud_failed)
-            cloud_failed.extend(gid for gid, _ in valid_pairs if gid not in failed_set)
-            cloud_added = 0
-
-    successful_gids = [it["gid"] for it in items_to_add if it["gid"] not in set(cloud_failed)]
-    local_added = 0
-    if successful_gids:
-        base_url = str(
-            getattr(settings, "exhentai_base_url", "https://exhentai.org")
-            or "https://exhentai.org"
-        ).rstrip("/")
-        favorite_items_to_save = []
-        for gid in successful_gids:
-            it = item_map[gid]
-            title = it.get("title") or str(gid)
-            token = it.get("token") or ""
-            favorite_items_to_save.append(
-                    FavoriteData(
-                        gid=gid,
-                        token=token,
-                        title=title,
-                        url=f"{base_url}/g/{gid}/{token}/",
-                        thumb=None,
-                        note=it.get("note") or body.note or None,
-                    )
-            )
-        try:
-            async with safe_transaction(session):
-                await FavoritesRepository(session).remember_many(
-                    body.target_favcat, favorite_items_to_save
-                )
-                await FavoritesRepository(session).move_gids(
-                    successful_gids, body.target_favcat
-                )
-                local_added = len(favorite_items_to_save)
-        except SQLAlchemyError as exc:
-            raise db_error(exc) from exc
-
-    _record_favorites_add_log(
-        [it["gid"] for it in items_to_add],
-        body.target_favcat,
-        cloud_failed,
-        local_added,
+    deps = MutationDeps(
+        favorites_repo=FavoritesRepository,
+        gallery_repo=GalleryRepository,
+        delete_local=delete_galleries_local,
+        release_session=release_session,
+        logger=logger,
     )
-
-    return {
-        "gids": [it["gid"] for it in items_to_add],
-        "target_favcat": body.target_favcat,
-        "cloud_ok": cloud_ok,
-        "cloud_added": cloud_added,
-        "cloud_failed": cloud_failed,
-        "successful_gids": successful_gids,
-        "local_added": local_added,
-    }
+    result = await add_favorites(
+        body,
+        session=session,
+        eh_client_mgr=eh_client_mgr,
+        settings=settings,
+        deps=deps,
+    )
+    _record_favorites_add_log(
+        result["gids"],
+        body.target_favcat,
+        result["cloud_failed"],
+        result["local_added"],
+    )
+    return result
 
 
 @router.post("/api/favorites/note")
@@ -892,177 +790,57 @@ async def favorites_set_note(
 ) -> dict[str, object]:
     """Update a favorite note via ExHentai applyfav; write local only on success."""
     session = await resolve_session(session, fallback_dep=get_session)
+    eh_client_mgr = _resolve_eh_client_manager(eh_client_mgr)
     settings = get_current_settings()
-    token = body.token
-    favcat = body.favcat
-    try:
-        item = await FavoritesRepository(session).item_for_gid(body.gid)
-        if item is not None:
-            token = token or item.token
-            if favcat is None:
-                favcat = item.favcat
-        if not token:
-            gallery = await GalleryRepository(session).get_by_gid(body.gid)
-            if gallery is not None:
-                token = gallery.token
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    if not token:
-        raise HTTPException(status_code=422, detail="token is required")
-    if favcat is None:
-        raise HTTPException(status_code=422, detail="not in favorites")
-    cloud_ok = False
-    try:
-        async with eh_client_mgr.client_context(settings=settings) as client:
-            await client.add_favorite(body.gid, str(token), int(favcat), note=body.note)
-        cloud_ok = True
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("cloud favorite note failed", extra=log_extra(error=type(exc).__name__))
-        cloud_ok = False
-    local_updated = 0
-    if cloud_ok:
-        try:
-            async with safe_transaction(session):
-                local_updated = await FavoritesRepository(session).update_note(
-                    body.gid, body.note, favcat=int(favcat)
-                )
-        except SQLAlchemyError as exc:
-            raise db_error(exc) from exc
-    now = datetime.now(UTC).isoformat()
-    tm = get_task_manager()
-    tm.record_task(
-        "favorites-note",
-        now,
-        now,
-        "success" if cloud_ok else "failed",
-        reason=f"gid {body.gid}",
-        done=local_updated,
-        total=1,
+
+    def _record_note_task(gid: int, cloud_ok: bool, local_updated: int) -> None:
+        now = datetime.now(UTC).isoformat()
+        tm = get_task_manager()
+        tm.record_task(
+            "favorites-note",
+            now,
+            now,
+            "success" if cloud_ok else "failed",
+            reason=f"gid {gid}",
+            done=local_updated,
+            total=1,
+        )
+    
+    deps = MutationDeps(
+        favorites_repo=FavoritesRepository,
+        gallery_repo=GalleryRepository,
+        delete_local=delete_galleries_local,
+        record_task=_record_note_task,
+        release_session=release_session,
+        logger=logger,
     )
-    spawn_task(tm.persist_history(), "persist task history")
+    result = await set_favorite_note(
+        body,
+        session=session,
+        eh_client_mgr=eh_client_mgr,
+        settings=settings,
+        deps=deps,
+    )
     return {
-        "gid": body.gid,
-        "cloud_ok": cloud_ok,
-        "local_updated": local_updated,
-        "note": body.note if cloud_ok else None,
+        "gid": result["gid"],
+        "cloud_ok": result["cloud_ok"],
+        "local_updated": result["local_updated"],
+        "note": result["note"],
     }
 
 
-@router.post("/api/favorites/duplicates/scan", status_code=202)
-async def duplicates_scan() -> dict[str, object]:
-    tm = get_task_manager()
-    if tm.duplicates_state.get("running"):
-        raise HTTPException(status_code=409, detail="scan already running")
-    spawn_task(run_duplicates_scan(), "duplicates scan")
-    return {"started": True}
+# Duplicate review handlers live in ``maintain.favorite_duplicates``; the
+# sub-router is included at the exact registration position they occupied.
+router.include_router(maintain.favorite_duplicates.router)
 
 
-@router.get("/api/favorites/duplicates/status")
-async def duplicates_status() -> dict[str, object]:
-    tm = get_task_manager()
-    groups = tm.duplicates_state.get("groups") or []
-    total_items = sum(len(g["items"]) for g in groups)
-    return {
-        "running": bool(tm.duplicates_state.get("running")),
-        "stage": tm.duplicates_state.get("stage"),
-        "done": tm.duplicates_state.get("done", 0),
-        "total": tm.duplicates_state.get("total", 0),
-        "last_error": tm.duplicates_state.get("last_error"),
-        "groups": groups,
-        "group_count": len(groups),
-        "item_count": total_items,
-        "ignored": tm.duplicates_state.get("ignored") or [],
-    }
+def _write_cover_atomic(path: Path, data: bytes) -> None:
+    """Write a cover image in one rename, with a per-call unique temp file.
 
-
-@router.get("/api/favorites/duplicates/ignored")
-async def duplicates_ignored_list(
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> list[dict[str, object]]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    try:
-        ignores = await FavoritesRepository(session).ignored_duplicates()
-        all_gids = [gid for entry in ignores for gid in (entry.get("gids") or [])]
-        items: dict[int, dict] = {}
-        if all_gids:
-            items = await FavoritesRepository(session).favorite_items_detail_by_gids(all_gids)
-            cloud_pairs = [
-                (gid, str(detail.get("token") or ""))
-                for gid, detail in items.items()
-                if detail.get("gallery_id") is None and detail.get("token")
-            ]
-            gmeta = await favorites_metadata(cloud_pairs) if cloud_pairs else {}
-            for gid, detail in items.items():
-                tags = detail.get("tags") or []
-                if tags:
-                    detail["tags"] = [
-                        {
-                            "namespace": tag.get("namespace"),
-                            "name": tag.get("name"),
-                            "display": translated_tag(tag.get("namespace"), tag.get("name"))[1],
-                        }
-                        for tag in tags
-                    ]
-                if detail.get("gallery_id") is not None:
-                    continue
-                meta = gmeta.get(gid, {})
-                token = str(detail.get("token") or "")
-                detail["cover_url"] = (
-                    f"/api/favorites/cover?gid={int(gid)}&token={token}" if token else None
-                )
-                detail["cover_data"] = None
-                detail["file_size"] = detail.get("file_size") or meta.get("file_size")
-                detail["posted_at"] = detail.get("posted_at") or normalize_posted(meta.get("posted"))
-                if meta.get("tags"):
-                    detail["tags"] = [
-                        {
-                            "namespace": t["namespace"],
-                            "name": t["name"],
-                            "display": translated_tag(t["namespace"], t["name"])[1],
-                        }
-                        for t in normalize_tags(meta.get("tags", []))
-                    ]
-        return [
-            {**entry, "items": [items.get(gid) for gid in (entry.get("gids") or []) if gid in items]}
-            for entry in ignores
-        ]
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-
-
-@router.post("/api/favorites/duplicates/ignore")
-async def duplicates_ignore(
-    body: DuplicateIgnoreRequest,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    if not body.key.strip():
-        raise HTTPException(status_code=422, detail="invalid key")
-    try:
-        async with safe_transaction(session):
-            await FavoritesRepository(session).add_duplicate_ignore(
-                body.key.strip(), body.title, body.gids
-            )
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    return {"ok": True, "key": body.key.strip()}
-
-
-@router.delete("/api/favorites/duplicates/ignore")
-@router.post("/api/favorites/duplicates/unignore")
-async def duplicates_unignore(
-    key: str = "",
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    if not key.strip():
-        raise HTTPException(status_code=422, detail="invalid key")
-    try:
-        async with safe_transaction(session):
-            await FavoritesRepository(session).remove_duplicate_ignore(key.strip())
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    return {"ok": True, "key": key.strip()}
+    Two concurrent cache misses for the same gid must not share a temp path:
+    the loser would then ``replace()`` a file the winner already moved away.
+    """
+    write_atomic(path, data)
 
 
 @router.get("/api/favorites/cover")
@@ -1101,6 +879,7 @@ async def favorite_cover(
                     thumb_url = meta.get("thumb") or None
         except SQLAlchemyError:
             thumb_url = None
+        await release_session(session)
         data: bytes | None = None
         if thumb_url:
             try:
@@ -1114,15 +893,10 @@ async def favorite_cover(
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
         path = cache_dir / f"{int(gid)}.img"
 
-        def _write_atomic() -> None:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_name(path.name + ".tmp")
-            tmp.write_bytes(data)
-            tmp.replace(path)
-
-        await run_in_threadpool(_write_atomic)
+        await run_in_threadpool(_write_cover_atomic, path, data)
     # Infer content-type from first bytes without loading whole file twice.
     head: bytes = await run_in_threadpool(lambda: path.read_bytes()[:16])
+    await release_session(session)
     return FileResponse(
         path,
         media_type=image_content_type(head),
@@ -1169,27 +943,10 @@ async def favorite_categories(
     return result
 
 
-@router.get("/api/favorites/metadata-status")
-async def favorites_metadata_status() -> dict[str, object]:
-    tm = get_task_manager()
-    return dict(tm.metadata_sync_state)
-
-
 @router.get("/api/favorites/check-status")
 async def favorites_check_status() -> dict[str, object]:
     tm = get_task_manager()
     return dict(tm.favorites_check_state)
-
-
-@router.post("/api/favorites/compute-sizes", status_code=202)
-async def compute_favorite_sizes(
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    favcats = [row.favcat for row in await FavoritesRepository(session).categories()]
-    for favcat in favcats:
-        spawn_task(favorite_size_sync(favcat), f"favorite size sync {favcat}")
-    return {"status": "started", "favcats": favcats}
 
 
 @router.post("/api/favorites/download-missing", status_code=202)
@@ -1197,6 +954,11 @@ async def download_missing_favorites(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
+    tm = get_task_manager()
+    if tm.metadata_sync_state.get("running"):
+        raise HTTPException(
+            status_code=409, detail="favorite metadata sync already running"
+        )
     favcats = [row.favcat for row in await FavoritesRepository(session).categories()]
     if not favcats:
         favcats = list(range(10))
@@ -1205,73 +967,21 @@ async def download_missing_favorites(
     return {"status": "started", "favcats": favcats}
 
 
-@router.post("/api/favorites/categories")
-async def update_favorite_category(
-    body: FavoriteCategoryRequest,
-    favcat: int = 0,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    favcat = body.favcat if body.favcat is not None else favcat
-    if not 0 <= favcat <= 9:
-        raise HTTPException(status_code=422, detail="invalid favcat")
-    try:
-        async with safe_transaction(session):
-            row = await FavoritesRepository(session).category(favcat)
-            if row is None:
-                row = FavoritesMonitor(favcat=favcat)
-                session.add(row)
-            if body.enabled is not None:
-                row.enabled = body.enabled
-            if body.mode is not None:
-                row.mode = body.mode
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-    return {"favcat": favcat, "enabled": row.enabled, "mode": row.mode}
-
-
 @router.post("/api/favorites/sync-categories")
-@router.post("/api/favorites/fetch-categories")
 async def sync_favorite_categories(
     session: AsyncSession = Depends(get_session),  # noqa: B008
     eh_client_mgr: EhClientManager = Depends(get_eh_client_manager),  # noqa: B008
 ) -> list[dict[str, object]]:
+    """Thin wrapper over ``services.favorites.sync_favorite_categories``."""
     session = await resolve_session(session, fallback_dep=get_session)
-    settings = get_current_settings()
-    if not settings.exhentai_cookies:
-        raise HTTPException(status_code=422, detail="ExHentai Cookie 未设置")
-    try:
-        async with eh_client_mgr.client_context(settings=settings) as client:
-            names = await client.fetch_favorite_categories()
-        async with safe_transaction(session):
-            if isinstance(names, dict):
-                for favcat, name in names.items():
-                    row = await FavoritesRepository(session).category(favcat)
-                    if row is None:
-                        row = FavoritesMonitor(favcat=favcat)
-                        session.add(row)
-                    row.name = name
-            elif isinstance(names, list):
-                for favcat, name in enumerate(names):
-                    row = await FavoritesRepository(session).category(favcat)
-                    if row is None:
-                        row = FavoritesMonitor(favcat=favcat)
-                        session.add(row)
-                    row.name = name
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.warning(
-            "favorite category synchronization failed", extra=log_extra(error=type(exc).__name__)
-        )
-        raise HTTPException(status_code=503, detail="无法读取 ExHentai 收藏夹分类") from exc
-    if isinstance(names, dict):
-        return [{"favcat": favcat, "name": name} for favcat, name in names.items()]
-    return [{"favcat": favcat, "name": name} for favcat, name in enumerate(names)]
+    return await favorites_service.sync_favorite_categories(
+        session=session,
+        eh_client_mgr=eh_client_mgr,
+        settings=get_current_settings(),
+    )
 
 
 @router.post("/api/favorites/{favcat}/check", status_code=202)
-@router.post("/api/favorites/check", status_code=202)
 async def check_favorites(favcat: int = 0) -> dict[str, object]:
     if not 0 <= favcat <= 9:
         raise HTTPException(status_code=422, detail="invalid favcat")
@@ -1290,6 +1000,9 @@ async def check_all_favorites(
     service = app_state.favorites_service
     if service is None:
         raise HTTPException(status_code=503, detail="Favorites service is unavailable")
+    tm = get_task_manager()
+    if tm.favorites_check_state.get("running"):
+        raise HTTPException(status_code=409, detail="favorites check already running")
     try:
         categories = await FavoritesRepository(session).categories()
     except SQLAlchemyError as exc:

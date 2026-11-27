@@ -16,7 +16,10 @@ from galleryvault.services.eh_client import (
     _usable_thumb_src,
     classify_search_body,
     get_fixed_preview_thumb_url,
+    normalize_jump,
+    normalize_seek,
     parse_search_page,
+    parse_search_prev_cursor,
 )
 
 SEARCH_LIST_HTML = """
@@ -129,6 +132,32 @@ def test_parse_search_page_extracts_rows_and_cursor() -> None:
     assert items[1].category == "manga"
     assert items[1].pages == 36
     assert items[1].rating == 3.25
+
+
+def test_parse_search_prev_cursor_reads_uprev_link() -> None:
+    body = (
+        '<div class="searchnav">'
+        '<a id="uprev" href="https://exhentai.org/?f_search=test&amp;prev=111111-1760000000">'
+        "&lt;</a>"
+        "</div>"
+    )
+    assert parse_search_prev_cursor(body) == "111111-1760000000"
+    assert parse_search_prev_cursor(SEARCH_LIST_HTML) is None
+    # The first page's "last" link also carries `prev=1`; only #uprev counts.
+    first_page = '<a id="ulast" href="https://exhentai.org/?f_search=test&amp;prev=1">'
+    assert parse_search_prev_cursor(first_page) is None
+
+
+def test_normalize_jump_and_seek_validation() -> None:
+    assert normalize_jump("1m") == "1m"
+    assert normalize_jump(None) is None
+    assert normalize_seek("2024-02-29") == "2024-02-29"
+    for bad in ("2d", "1h", "1"):
+        with pytest.raises(ValueError):
+            normalize_jump(bad)
+    for bad in ("2024-02-30", "2024-2-9", "20240101", "2024-13-01"):
+        with pytest.raises(ValueError):
+            normalize_seek(bad)
 
 
 def test_parse_search_page_prefers_data_src_over_blank_gif() -> None:
@@ -324,6 +353,67 @@ async def test_search_galleries_parses_fixture_and_sends_cursor_not_page() -> No
         await client.client.aclose()
 
 
+@pytest.mark.asyncio
+async def test_search_galleries_passes_prev_and_date_jump_params() -> None:
+    seen: list[httpx.URL] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url)
+        return httpx.Response(200, text=SEARCH_LIST_HTML)
+
+    client = await _client_for(handler)
+    try:
+        await client.search_galleries(q="test", prev_cursor="111111-1760000000")
+        assert seen[0].params.get("prev") == "111111-1760000000"
+        assert seen[0].params.get("next") is None
+        assert "page=" not in str(seen[0])
+
+        await client.search_galleries(
+            q="test", next_cursor="222222-1770000000", jump="1m"
+        )
+        assert seen[1].params.get("next") == "222222-1770000000"
+        assert seen[1].params.get("jump") == "1m"
+
+        await client.search_galleries(
+            q="test", prev_cursor="111111-1760000000", seek="2024-02-29"
+        )
+        assert seen[2].params.get("prev") == "111111-1760000000"
+        assert seen[2].params.get("seek") == "2024-02-29"
+    finally:
+        await client.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_search_galleries_rejects_invalid_jump_seek_combinations() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=SEARCH_LIST_HTML)
+
+    client = await _client_for(handler)
+    try:
+        with pytest.raises(ValueError):
+            await client.search_galleries(q="test", next_cursor="1-2", prev_cursor="1-3")
+        with pytest.raises(ValueError):
+            await client.search_galleries(q="test", jump="1m")
+        with pytest.raises(ValueError):
+            await client.search_galleries(
+                q="test", next_cursor="1-2", jump="2d"
+            )
+        with pytest.raises(ValueError):
+            await client.search_galleries(
+                q="test", next_cursor="1-2", seek="2024-02-30"
+            )
+        with pytest.raises(ValueError):
+            await client.search_galleries(
+                q="test", next_cursor="1-2", jump="1d", seek="2024-01-01"
+            )
+        with pytest.raises(ValueError):
+            await client.search_galleries(
+                list_type="toplist", tl=15, next_cursor="1", jump="1d"
+            )
+    finally:
+        await client.client.aclose()
+
+
 @pytest.mark.parametrize(
     "status_code, body, headers, expected_state",
     [
@@ -487,6 +577,57 @@ async def test_eh_search_endpoint_cache_skips_repeat_fetch(monkeypatch: pytest.M
 
 
 @pytest.mark.asyncio
+async def test_eh_search_cache_key_distinguishes_prev_and_date_jump() -> None:
+    app_state.extra.pop("eh_search_cache", None)
+    calls = {"n": 0}
+
+    class DummyClient:
+        async def search_galleries(self, **kwargs):
+            calls["n"] += 1
+            return EhSearchResult(items=[], next_cursor="2-3", state="ok")
+
+    orig_client = app_state.eh_client
+    app_state.eh_client = DummyClient()
+    try:
+        first = await eh_search(
+            q="test",
+            category=None,
+            min_rating=None,
+            next_cursor="1-2",
+            jump="1m",
+        )
+        second = await eh_search(
+            q="test",
+            category=None,
+            min_rating=None,
+            next_cursor="1-2",
+            jump="1m",
+        )
+        assert calls["n"] == 1
+        assert first is not second  # cached payload is copied per request
+        await eh_search(
+            q="test",
+            category=None,
+            min_rating=None,
+            next_cursor="1-2",
+            jump="3d",
+        )
+        assert calls["n"] == 2
+        await eh_search(
+            q="test",
+            category=None,
+            min_rating=None,
+            next_cursor=None,
+            prev_cursor="0-1",
+            jump="1m",
+        )
+        assert calls["n"] == 3
+    finally:
+        app_state.eh_client = orig_client
+        app_state.extra.pop("eh_search_cache", None)
+
+
+@pytest.mark.asyncio
 async def test_search_min_rating_sends_srdd_not_page() -> None:
     seen: list[httpx.URL] = []
 
@@ -631,8 +772,20 @@ async def test_search_toplist_pagination_cursor() -> None:
         ("/api/eh/search?list=toplist&next=1", 200, {"state": "ok", "next": "2", "list": "toplist"}),
         ("/api/eh/search?list=toplist&next=111111-1770000000", 422, None),
         ("/api/eh/search?list=toplist&next=abc", 422, None),
+        ("/api/eh/search?list=toplist&prev=0", 200, {"prev": "0-1"}),
+        ("/api/eh/search?list=toplist&prev=111111-1770000000", 422, None),
         ("/api/eh/search?list=search&next=1", 200, None),
         ("/api/eh/search?list=search&next=abc", 422, None),
+        ("/api/eh/search?list=search&prev=1-2", 200, {"prev": "0-1"}),
+        ("/api/eh/search?list=search&prev=abc", 422, None),
+        ("/api/eh/search?list=search&next=1-2&prev=1-3", 422, None),
+        ("/api/eh/search?list=search&next=1-2&jump=1m", 200, {"jump": "1m"}),
+        ("/api/eh/search?list=search&next=1-2&jump=2d", 422, None),
+        ("/api/eh/search?list=search&jump=1m", 422, None),
+        ("/api/eh/search?list=search&next=1-2&seek=2024-02-29", 200, {"seek": "2024-02-29"}),
+        ("/api/eh/search?list=search&next=1-2&seek=2024-02-30", 422, None),
+        ("/api/eh/search?list=search&next=1-2&jump=1d&seek=2024-01-01", 422, None),
+        ("/api/eh/search?list=toplist&next=1&jump=1d", 422, None),
     ],
 )
 def test_eh_search_router_cursor_validation(
@@ -653,6 +806,7 @@ def test_eh_search_router_cursor_validation(
             return EhSearchResult(
                 items=[],
                 next_cursor="2",
+                prev_cursor="0-1",
                 state="ok",
             )
 

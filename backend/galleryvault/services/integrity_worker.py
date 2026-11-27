@@ -16,7 +16,21 @@ from ..logging import bind_log_context, log_extra
 logger = logging.getLogger(__name__)
 
 MAGIC_SCAN_GALLERY_CONCURRENCY = 2
-integrity_scan_lock = asyncio.Lock()
+# Created lazily on first use: asyncio primitives bind to the loop of their
+# first waiter, but module import happens before any loop exists (report 01
+# P3-10).
+_integrity_scan_lock: asyncio.Lock | None = None
+_integrity_scan_lock_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _get_integrity_scan_lock() -> asyncio.Lock:
+    """Return the integrity scan lock bound to the current event loop."""
+    global _integrity_scan_lock, _integrity_scan_lock_loop
+    loop = asyncio.get_running_loop()
+    if _integrity_scan_lock is None or _integrity_scan_lock_loop is not loop:
+        _integrity_scan_lock = asyncio.Lock()
+        _integrity_scan_lock_loop = loop
+    return _integrity_scan_lock
 
 
 def gallery_has_bad_page_magic(storage_path: str, page_count: int) -> bool:
@@ -67,7 +81,7 @@ async def run_integrity_magic_scan() -> None:
         return
 
     with bind_log_context(task="integrity_magic_scan"):
-        async with integrity_scan_lock, tm.track_task("integrity") as tracker:
+        async with _get_integrity_scan_lock(), tm.track_task("integrity") as tracker:
             tracker.update(corrupt_ids=[], scanned=0, last_error=None)
 
             semaphore = asyncio.Semaphore(MAGIC_SCAN_GALLERY_CONCURRENCY)

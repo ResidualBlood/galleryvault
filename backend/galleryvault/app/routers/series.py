@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -15,7 +15,10 @@ from ...db.models import Gallery
 from ...db.repositories.galleries import GalleryRepository
 from ...db.repositories.series import SeriesRepository
 from ...db.session import safe_transaction
-from ...services.series import rebuild_series_groups
+from ...services.series import rebuild_series_groups, series_rebuild_state
+
+# Backward-compatible alias: same dict object shared with the scan worker.
+_series_rebuild_state = series_rebuild_state
 from ...services.tag_translation import translated_tag
 from ..core.task_dispatcher import TaskDispatcher
 from ..core.uow import UnitOfWork
@@ -45,7 +48,33 @@ class SeriesCloudItemsRequest(BaseModel):
     gids: list[int] = Field(default_factory=list)
 
 
-def _serialize_card(m: Any, tag_map: dict[int, list[tuple[str, str]]]) -> dict[str, Any]:
+async def _tags_for_galleries(
+    repo: object, gallery_ids: list[int], tags_limit: int | None
+) -> dict[int, list[tuple[str, str]]]:
+    """Fetch tag previews, only overriding the cap when the client asked."""
+    limit = tags_limit if isinstance(tags_limit, int) else None
+    if limit is None:
+        return await repo.tags_for_galleries(gallery_ids)
+    return await repo.tags_for_galleries(gallery_ids, limit)
+
+
+def _tag_count(tag_map: dict[int, list[tuple[str, str]]], gallery_id: int) -> int:
+    counts = getattr(tag_map, "counts", None) or {}
+    if gallery_id in counts:
+        return int(counts[gallery_id])
+    return len(tag_map.get(gallery_id, []))
+
+
+def _clip_tags(tags: list[dict[str, Any]], tags_limit: int | None) -> list[dict[str, Any]]:
+    limit = tags_limit if isinstance(tags_limit, int) else 4
+    return tags if limit <= 0 else tags[:limit]
+
+
+def _serialize_card(
+    m: Any,
+    tag_map: dict[int, list[tuple[str, str]]],
+    tags_limit: int | None = None,
+) -> dict[str, Any]:
     if isinstance(m, dict):
         raw_tags = m.get("tags") or []
         tags = []
@@ -88,7 +117,8 @@ def _serialize_card(m: Any, tag_map: dict[int, list[tuple[str, str]]]) -> dict[s
             "category": m.get("category") or "other",
             "page_count": m.get("page_count", 0),
             "cover_url": cover_url,
-            "tags": tags,
+            "tags": _clip_tags(tags, tags_limit),
+            "tag_count": len(tags),
         }
 
     is_local = getattr(m, "is_local", True)
@@ -143,6 +173,7 @@ def _serialize_card(m: Any, tag_map: dict[int, list[tuple[str, str]]]) -> dict[s
         "page_count": page_count,
         "cover_url": cover_url,
         "tags": tags,
+        "tag_count": _tag_count(tag_map, g_id) if g_id is not None else len(tags),
     }
 
 
@@ -161,6 +192,7 @@ async def list_series(
     page: int = 1,
     page_size: int = 25,
     show_all: int = 0,
+    tags_limit: int | None = Query(default=None, ge=0, le=64),
     session: AsyncSession = Depends(get_session),  # noqa: B008
     uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
 ) -> dict[str, object]:
@@ -183,7 +215,7 @@ async def list_series(
                 elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
                     local_gallery_ids.append(m.id)
         tag_map = (
-            await gal_repo.tags_for_galleries(local_gallery_ids)
+            await _tags_for_galleries(gal_repo, local_gallery_ids, tags_limit)
             if local_gallery_ids
             else {}
         )
@@ -199,54 +231,15 @@ async def list_series(
                 "name_manual": s.name_manual,
                 "count": count,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
-                "galleries": [_serialize_card(m, tag_map) for m in members],
+                "galleries": [
+                    _serialize_card(m, tag_map, tags_limit) for m in members
+                ],
             }
             for s, count, members in rows
         ],
         "total": total,
         "page": page,
         "page_size": page_size,
-    }
-
-
-@router.get("/api/series/{series_id}")
-async def get_series(
-    series_id: int,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-    uow: UnitOfWork = Depends(get_unit_of_work),  # noqa: B008
-) -> dict[str, object]:
-    try:
-        repo, gal_repo, _ = await _resolve_repos(session, uow)
-        res = await repo.get_with_galleries(series_id)
-        if res is None:
-            raise HTTPException(status_code=404, detail="series not found")
-        s, members = res
-        local_ids = []
-        for m in members:
-            if isinstance(m, Gallery):
-                local_ids.append(m.id)
-            elif isinstance(m, dict) and m.get("is_local") and m.get("gallery_id"):
-                local_ids.append(m["gallery_id"])
-            elif getattr(m, "id", None) is not None and getattr(m, "is_local", True):
-                local_ids.append(m.id)
-        tag_map = (
-            await gal_repo.tags_for_galleries(local_ids)
-            if local_ids
-            else {}
-        )
-    except HTTPException:
-        raise
-    except SQLAlchemyError as exc:
-        raise db_error(exc) from exc
-
-    return {
-        "id": s.id,
-        "name": s.name,
-        "match_key": s.match_key,
-        "name_manual": s.name_manual,
-        "count": len(members),
-        "created_at": s.created_at.isoformat() if s.created_at else None,
-        "galleries": [_serialize_card(m, tag_map) for m in members],
     }
 
 
@@ -431,6 +424,10 @@ async def remove_series_items(
     return {"id": series_id, "removed": removed}
 
 
+# Guard so repeated rebuild clicks cannot stack full-library scoring passes.
+# The state lives in the service layer so the scan tail honours it too.
+
+
 def _resolve_dispatcher(dispatcher: Any) -> TaskDispatcher:
     if isinstance(dispatcher, TaskDispatcher):
         return dispatcher
@@ -441,9 +438,12 @@ def _resolve_dispatcher(dispatcher: Any) -> TaskDispatcher:
 async def rebuild_series(
     dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
 ) -> dict[str, object]:
+    if series_rebuild_state["running"]:
+        raise HTTPException(status_code=409, detail="series rebuild already running")
     disp = _resolve_dispatcher(dispatcher)
     tm = disp.task_manager if getattr(disp, "task_manager", None) is not None else get_task_manager()
     started_at = datetime.now(UTC).isoformat()
+    series_rebuild_state["running"] = True
     try:
         stats = await rebuild_series_groups()
     except Exception as exc:
@@ -458,8 +458,9 @@ async def rebuild_series(
                 done=0,
                 total=0,
             )
-            disp.spawn(tm.persist_history(), "persist task history")
         raise
+    finally:
+        series_rebuild_state["running"] = False
 
     completed_at = datetime.now(UTC).isoformat()
     created = int(stats.get("created", 0) or 0)
@@ -475,5 +476,4 @@ async def rebuild_series(
             done=merged,
             total=merged,
         )
-        disp.spawn(tm.persist_history(), "persist task history")
     return {"rebuilt": True, **stats}

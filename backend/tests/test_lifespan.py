@@ -7,9 +7,9 @@ from pathlib import Path
 
 from galleryvault.app.lifespan import (
     cleanup_partial_downloads,
-    stop_background_tasks,
     warmup_database_pool,
 )
+from galleryvault.app.workers import WorkerRegistry
 from galleryvault.services.eh_client import EXHENTAI_API_CHUNK_SIZE
 
 
@@ -74,27 +74,20 @@ async def test_cleanup_partial_downloads(tmp_path: Path) -> None:
     assert other_file.exists()
 
 
-async def test_stop_background_tasks() -> None:
-    loop = asyncio.get_running_loop()
+async def test_registry_shutdown_cancels_workers() -> None:
+    registry = WorkerRegistry()
+    started = asyncio.Event()
 
-    async def _dummy():
-        try:
-            await asyncio.sleep(100)
-        except asyncio.CancelledError:
-            pass
+    async def _dummy() -> None:
+        started.set()
+        await asyncio.sleep(100)
 
-    t1 = loop.create_task(_dummy())
-    t2 = loop.create_task(_dummy())
-    t3 = loop.create_task(_dummy())
-
-    spawned = {t1, t2}
-    specific = [t3, None]
-
-    await stop_background_tasks(spawned, specific)
-
-    assert t1.cancelled() or t1.done()
-    assert t2.cancelled() or t2.done()
-    assert t3.cancelled() or t3.done()
+    registry.register("dummy", _dummy)
+    task = registry.start("dummy")
+    assert task is not None
+    await asyncio.wait_for(started.wait(), timeout=1)
+    await registry.shutdown(timeout=1)
+    assert task.done()
 
 
 def test_exhentai_chunk_size_constant() -> None:

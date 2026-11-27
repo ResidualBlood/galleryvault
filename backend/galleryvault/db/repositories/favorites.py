@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import NamedTuple
@@ -7,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
-    DuplicateIgnore,
+    AppConfig,
     FavoriteItem,
     FavoritesCheckLog,
     FavoritesMonitor,
@@ -19,6 +20,21 @@ from ..models import (
 )
 from ..tag_filters import build_tag_predicates
 from .base import BaseRepository, _chunked, count_select, escape_like_wildcards
+
+logger = logging.getLogger(__name__)
+
+# ``prune`` safety net: a cloud listing that would drop most of the recorded
+# rows is far more likely a silently truncated page (broken ``nexturl`` /
+# markup change) than a real mass unfavorite. Directories below the minimum
+# size, and listings that keep at least ``_PRUNE_KEEP_RATIO`` of the rows, are
+# pruned as before.
+_PRUNE_MIN_RECORDED = 20
+_PRUNE_KEEP_RATIO = 0.5
+
+# ``app_config`` key holding the last successful full listing check per folder:
+# ``{"<favcat>": "<iso timestamp>"}``.  It lives outside migrations because
+# ``app_config`` is a generic key/value table.
+FULL_CHECK_CONFIG_KEY = "favorites_full_check"
 
 
 class CloudSizeBreakdown(NamedTuple):
@@ -125,28 +141,6 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
             for favcat, known, unknown in rows
         }
 
-    async def pending_size_gids(self, favcat: int, limit: int = 200) -> list[tuple[int, str]]:
-        """``(gid, token)`` of folder galleries missing a size and not local."""
-        rows = await self.session.execute(
-            select(FavoriteItem.gid, FavoriteItem.token)
-            .select_from(FavoriteItem)
-            .outerjoin(
-                Gallery,
-                and_(
-                    Gallery.gid == FavoriteItem.gid,
-                    Gallery.expunged.is_(False),
-                    Gallery.trashed.is_(False),
-                ),
-            )
-            .where(
-                FavoriteItem.favcat == favcat,
-                Gallery.id.is_(None),
-                FavoriteItem.file_size.is_(None),
-            )
-            .limit(limit)
-        )
-        return [(int(row[0]), str(row[1])) for row in rows]
-
     async def set_file_size(self, favcat: int, gid: int, size: int | None) -> None:
         await self.session.execute(
             update(FavoriteItem)
@@ -175,6 +169,40 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
             )
             or 0
         )
+
+    async def full_check_times(self) -> dict[int, datetime]:
+        """Last successful full listing check per folder (persisted).
+
+        Returns ``{}`` when the row is missing or malformed, which callers treat
+        as "never checked" so the next scheduled run is a full check.
+        """
+        row = await self.session.get(AppConfig, FULL_CHECK_CONFIG_KEY)
+        raw = row.value if row is not None and isinstance(row.value, dict) else {}
+        times: dict[int, datetime] = {}
+        for key, value in raw.items():
+            try:
+                favcat = int(key)
+                parsed = datetime.fromisoformat(str(value))
+            except (TypeError, ValueError):
+                continue
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            times[favcat] = parsed.astimezone(UTC)
+        return times
+
+    async def set_full_check_time(self, favcat: int, when: datetime | None = None) -> None:
+        """Record a successful full listing check for one folder."""
+        stamp = when or datetime.now(UTC)
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=UTC)
+        row = await self.session.get(AppConfig, FULL_CHECK_CONFIG_KEY)
+        value = dict(row.value) if row is not None and isinstance(row.value, dict) else {}
+        value[str(int(favcat))] = stamp.astimezone(UTC).isoformat()
+        if row is None:
+            self.session.add(AppConfig(key=FULL_CHECK_CONFIG_KEY, value=value))
+        else:
+            row.value = value
+        await self.session.flush()
 
     async def all_gids_for_favcat(self, favcat: int) -> list[tuple[int, str, str | None]]:
         """``(gid, token, thumb)`` for every item in a favorite folder."""
@@ -245,10 +273,17 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
         """
         if not items:
             return
+        # One ``ON CONFLICT`` statement cannot touch the same row twice
+        # (PostgreSQL: "command cannot affect row a second time"), so collapse
+        # duplicate gids here instead of trusting every caller to pre-dedupe.
+        deduped: dict[int, object] = {}
+        for item in items:
+            deduped[int(item.gid)] = item
+        unique_items = list(deduped.values())
         now = datetime.now(UTC)
         batch_size = 500
-        for start in range(0, len(items), batch_size):
-            chunk = items[start : start + batch_size]
+        for start in range(0, len(unique_items), batch_size):
+            chunk = unique_items[start : start + batch_size]
             rows = [
                 {
                     "favcat": favcat,
@@ -300,22 +335,59 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
         Otherwise ``count_known_gids`` drifts above the live cloud count (the
         scheduled "cloud count unchanged → skip" heuristic never fires again)
         and phantom cloud-only items linger in the folder list forever.
+
+        ``allow_empty`` must only be set when the caller has confirmed on the
+        cloud side that the folder really is empty; a successful check that
+        merely returned no items cannot be told apart from a broken listing.
         """
-        if current_gids:
-            result = await self.session.execute(
-                delete(FavoriteItem).where(
-                    FavoriteItem.favcat == favcat,
-                    FavoriteItem.gid.not_in(current_gids),
-                )
-            )
-        elif allow_empty:
+        if not current_gids:
+            if not allow_empty:
+                return 0
             # An empty folder on the cloud means every recorded row is stale.
             result = await self.session.execute(
                 delete(FavoriteItem).where(FavoriteItem.favcat == favcat)
             )
-        else:
+            return result.rowcount or 0
+
+        recorded = await self.count_known_gids(favcat)
+        if recorded >= _PRUNE_MIN_RECORDED and len(current_gids) < recorded * _PRUNE_KEEP_RATIO:
+            # Pagination silently stopped early: keep the recorded rows rather
+            # than deleting everything the (partial) listing did not mention.
+            logger.warning(
+                "favorites prune skipped for favcat=%s: listing returned %s of %s "
+                "recorded items, looks truncated",
+                favcat,
+                len(current_gids),
+                recorded,
+            )
             return 0
+
+        result = await self.session.execute(
+            delete(FavoriteItem).where(
+                FavoriteItem.favcat == favcat,
+                FavoriteItem.gid.not_in(current_gids),
+            )
+        )
         return result.rowcount or 0
+
+    async def forget(self, favcat: int, gids: list[int]) -> int:
+        """Drop recorded rows for ``gids`` because they were not handled.
+
+        A favourite whose download could not be enqueued must not stay marked
+        as "seen": the recorded row removes it from every later incremental
+        candidate set, so the retry never happens.  Deleting the row puts the
+        gid back into the cloud-only state and the next check offers it again.
+        """
+        removed = 0
+        for chunk in _chunked(list(dict.fromkeys(gids))):
+            result = await self.session.execute(
+                delete(FavoriteItem).where(
+                    FavoriteItem.favcat == favcat,
+                    FavoriteItem.gid.in_(chunk),
+                )
+            )
+            removed += result.rowcount or 0
+        return removed
 
     async def log_check(
         self, favcat: int, gids: list[int], attempts: int, success: bool, error: str | None = None
@@ -404,7 +476,7 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
         if posted_from is not None:
             query = query.where(Gallery.posted_at >= posted_from)
         if posted_to is not None:
-            query = query.where(Gallery.posted_at <= posted_to)
+            query = query.where(Gallery.posted_at < posted_to)
         if uploader and uploader.strip():
             pattern = f"%{escape_like_wildcards(uploader.strip())}%"
             query = query.where(Gallery.uploader.ilike(pattern))
@@ -479,7 +551,14 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
                 FavoriteItem.last_seen_at.desc(),
             ],
         }
-        order_clauses = order_map.get(order_by, [FavoriteItem.last_seen_at.desc()])
+        # ``FavoriteItem.id`` is the only unique column in play here.  Without a
+        # unique tiebreaker Postgres is free to order rows with equal sort keys
+        # differently for each page, so offset pagination can repeat or skip
+        # items (remember_many stores one identical ``last_seen_at`` per batch).
+        order_clauses = [
+            *order_map.get(order_by, [FavoriteItem.last_seen_at.desc()]),
+            FavoriteItem.id.desc(),
+        ]
         rows = (
             await self.session.execute(
                 query.order_by(*order_clauses)
@@ -538,6 +617,31 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
             )
             for gallery_id, namespace, name in rows:
                 result.setdefault(int(gallery_id), []).append((namespace, name))
+        return result
+
+    async def artist_tags_for_gallery_ids(
+        self, gallery_ids: list[int]
+    ) -> dict[int, list[tuple[str, str]]]:
+        """Artist-only tag map; cross-gid dedup reads no other namespace.
+
+        The generic ``tags_for_gallery_ids`` loads every namespace (hundreds of
+        megabytes on large libraries) while clustering only looks at
+        ``artist``.
+        """
+        if not gallery_ids:
+            return {}
+        result: dict[int, list[tuple[str, str]]] = {}
+        for chunk in _chunked(list(dict.fromkeys(gallery_ids))):
+            rows = await self.session.execute(
+                select(GalleryTag.gallery_id, Tag.name)
+                .join(Tag, Tag.id == GalleryTag.tag_id)
+                .where(
+                    GalleryTag.gallery_id.in_(chunk),
+                    Tag.namespace == "artist",
+                )
+            )
+            for gallery_id, name in rows:
+                result.setdefault(int(gallery_id), []).append(("artist", name))
         return result
 
     async def remove_gids(self, gids: list[int]) -> int:
@@ -679,10 +783,6 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
                     result[int(gid)] = (title, title_jpn)
         return result
 
-    async def ignored_duplicate_keys(self) -> set[str]:
-        rows = await self.session.scalars(select(DuplicateIgnore.key))
-        return set(rows.all())
-
     async def favorite_items_detail_by_gids(self, gids: list[int]) -> dict[int, dict]:
         """Duplicate-scan style item detail for favorite gids (local-join aware)."""
         if not gids:
@@ -760,35 +860,6 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
                 }
         return result
 
-    async def ignored_duplicates(self) -> list[dict[str, object]]:
-        rows = await self.session.scalars(
-            select(DuplicateIgnore).order_by(DuplicateIgnore.created_at.desc())
-        )
-        return [
-            {
-                "key": row.key,
-                "title": row.title,
-                "gids": row.gids or [],
-            }
-            for row in rows
-        ]
-
-    async def add_duplicate_ignore(
-        self, key: str, title: str | None, gids: list[int]
-    ) -> None:
-        self.session.add(
-            DuplicateIgnore(
-                key=key,
-                title=title or None,
-                gids=gids or None,
-            )
-        )
-
-    async def remove_duplicate_ignore(self, key: str) -> None:
-        row = await self.session.get(DuplicateIgnore, key)
-        if row is not None:
-            await self.session.delete(row)
-
     async def update_posted_at(self, gid_to_posted: dict[int, datetime]) -> None:
         """Persist ExHentai posted timestamps onto on-disk galleries."""
         if not gid_to_posted:
@@ -843,30 +914,6 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
         await self.session.flush()
         return row is not None
 
-    async def get_items_by_gids(
-        self, gids: Sequence[int], favcat: int | None = None
-    ) -> list[FavoriteItem]:
-        """Fetch favorite items for gids, optionally scoped to a single favcat."""
-        valid_gids = [g for g in gids if g is not None]
-        if not valid_gids:
-            return []
-        results: list[FavoriteItem] = []
-        for chunk in _chunked(valid_gids):
-            stmt = select(FavoriteItem).where(FavoriteItem.gid.in_(chunk))
-            if favcat is not None:
-                stmt = stmt.where(FavoriteItem.favcat == favcat)
-            rows = await self.session.scalars(stmt)
-            results.extend(rows.all())
-        return results
-
-    async def clear_folder(self, favcat: int) -> int:
-        """Remove all favorite items in a given favcat."""
-        result = await self.session.execute(
-            delete(FavoriteItem).where(FavoriteItem.favcat == favcat)
-        )
-        await self.session.flush()
-        return int(result.rowcount or 0)
-
     async def list_logs(
         self, favcat: int | None = None, limit: int = 50
     ) -> list[FavoritesCheckLog]:
@@ -877,14 +924,6 @@ class FavoritesRepository(BaseRepository[FavoriteItem]):
         stmt = stmt.limit(limit)
         rows = await self.session.scalars(stmt)
         return list(rows.all())
-
-    async def get_item(self, favcat: int, gid: int) -> FavoriteItem | None:
-        """Fetch single favorite item by folder and gid."""
-        return await self.session.scalar(
-            select(FavoriteItem).where(
-                FavoriteItem.favcat == favcat, FavoriteItem.gid == gid
-            )
-        )
 
 
 

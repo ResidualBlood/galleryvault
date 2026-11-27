@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from ..app.state import app_state
 from ..config import get_settings
@@ -42,6 +43,40 @@ def notify_tag_sync() -> None:
     """Wake up tag sync workers when a new task is enqueued or concurrency adjusted."""
     if _sync_event is not None:
         _sync_event.set()
+
+
+def finalize_cancelled_run(tm: Any, state: dict[str, Any], task_name: str) -> None:
+    """Mark one cancelled run terminal without stopping the resident worker.
+
+    Cancelling a run must not leave ``running=True`` forever (the old loops did,
+    because they ``break``ed before the terminal-state code).  The worker keeps
+    polling afterwards; only ``asyncio.CancelledError`` ends it (shutdown).
+    """
+    completed_at = datetime.now(UTC).isoformat()
+    state["running"] = False
+    state["completed_at"] = completed_at
+    state["queued"] = 0
+    if state.get("history_recorded"):
+        return
+    state["history_recorded"] = True
+    if not tm:
+        return
+    tm.record_task(
+        task_name,
+        state.get("started_at") or completed_at,
+        completed_at,
+        "cancelled",
+        reason="cancelled",
+        done=int(state.get("processed") or 0),
+        total=int(state.get("total") or 0),
+    )
+
+
+def _get_background_session_factory() -> Any:
+    """Worker-pool session factory, so background job churn never competes
+    with HTTP requests for the API pool (falls back to the API pool)."""
+    return getattr(app_state, "background_session_factory", None) or app_state.session_factory
+
 _sync_context: dict[str, Any] = {
     "interval": 1.5,
     "success_streak": 0,
@@ -56,9 +91,10 @@ async def tag_facets_cached() -> list[tuple[str, int]]:
     now = _time.time()
     if now - float(_tag_facets_cache.get("ts", 0.0)) < _TAG_FACETS_TTL:
         return list(_tag_facets_cache.get("facets", []))
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return []
-    async with app_state.session_factory() as session:
+    async with session_factory() as session:
         facets = await GalleryRepository(session).tag_facets()
     _tag_facets_cache["ts"] = now
     _tag_facets_cache["facets"] = facets
@@ -66,10 +102,11 @@ async def tag_facets_cached() -> list[tuple[str, int]]:
 
 
 async def jobs_count(job_type: str) -> int:
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return 0
     try:
-        async with app_state.session_factory() as session:
+        async with session_factory() as session:
             return await BackgroundJobsRepository(session).count(job_type)
     except Exception:  # noqa: BLE001
         return 0
@@ -78,10 +115,11 @@ async def jobs_count(job_type: str) -> int:
 async def claim_jobs(
     job_type: str, limit: int = 1, *, lease_seconds: int = 600
 ) -> list[tuple[int, int]]:
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return []
     try:
-        async with app_state.session_factory() as session, session.begin():
+        async with session_factory() as session, session.begin():
             return await BackgroundJobsRepository(session).claim(
                 job_type, limit, lease_seconds=lease_seconds
             )
@@ -94,10 +132,11 @@ async def claim_jobs(
 
 
 async def complete_job(job_type: str, gallery_id: int) -> None:
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return
     try:
-        async with app_state.session_factory() as session, session.begin():
+        async with session_factory() as session, session.begin():
             await BackgroundJobsRepository(session).complete(job_type, gallery_id)
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -109,10 +148,11 @@ async def complete_job(job_type: str, gallery_id: int) -> None:
 async def requeue_job(
     job_type: str, gallery_id: int, *, next_attempt_at: datetime | None = None
 ) -> None:
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return
     try:
-        async with app_state.session_factory() as session, session.begin():
+        async with session_factory() as session, session.begin():
             await BackgroundJobsRepository(session).requeue(
                 job_type, gallery_id, next_attempt_at=next_attempt_at
             )
@@ -123,30 +163,17 @@ async def requeue_job(
         )
 
 
-async def enqueue_job(job_type: str, gallery_id: int) -> bool:
-    if not app_state.session_factory:
-        return False
-    try:
-        async with app_state.session_factory() as session, session.begin():
-            return await BackgroundJobsRepository(session).enqueue(job_type, gallery_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "background job enqueue failed",
-            extra=log_extra(job_type=job_type, gallery_id=gallery_id, error=type(exc).__name__),
-        )
-        return False
-
-
 async def enqueue_tag_sync(gallery_ids: list[int]) -> int:
     """Queue gallery ids for background tag synchronization, de-duplicating."""
-    if not app_state.session_factory:
+    session_factory = _get_background_session_factory()
+    if not session_factory:
         return 0
     added = 0
     tm = app_state.task_manager
     tag_sync_state = tm.tag_sync_state if tm else {}
     for start in range(0, len(gallery_ids), 500):
         chunk = gallery_ids[start : start + 500]
-        async with app_state.session_factory() as session, session.begin():
+        async with session_factory() as session, session.begin():
             added += await BackgroundJobsRepository(session).enqueue_many(JOB_TAG_SYNC, chunk)
     if added:
         current = int(tag_sync_state.get("total") or 0)
@@ -290,8 +317,13 @@ async def category_refresh_once() -> int:
         gmeta: dict[int, dict[str, Any]] = {}
         if pairs:
             try:
-                gmeta = await refresh_gdata(pairs, client=app_state.eh_client)
-            except Exception as exc:  # noqa: BLE001
+                # ``refresh_gdata`` persists network results through the given
+                # session; no explicit begin() so it can release the connection
+                # before the gdata call and write in a short transaction.
+                session_factory = _get_background_session_factory()
+                async with session_factory() as session:
+                    gmeta = await refresh_gdata(session, pairs, client=app_state.eh_client)
+            except (EhClientError, SQLAlchemyError) as exc:
                 logger.warning(
                     "category refresh gdata batch failed", extra=log_extra(error=type(exc).__name__)
                 )
@@ -544,10 +576,16 @@ async def _tag_sync_worker() -> None:
             return
 
         tm = app_state.task_manager
-        if tm and tm.is_cancelled("tag-sync"):
-            break
-        claimed = await claim_jobs(JOB_TAG_SYNC, 1)
         tag_sync_state = tm.tag_sync_state if tm else {}
+        if tm and tm.is_cancelled("tag-sync"):
+            # Finish this run as cancelled, then keep polling: only shutdown
+            # (CancelledError) may stop the resident worker.
+            finalize_cancelled_run(tm, tag_sync_state, "tag-sync")
+            tm.clear_cancelled("tag-sync")
+            _sync_context["last_activity"] = _time.monotonic()
+            await asyncio.sleep(1)
+            continue
+        claimed = await claim_jobs(JOB_TAG_SYNC, 1)
         if not claimed:
             if (
                 tag_sync_state.get("running")
@@ -566,9 +604,6 @@ async def _tag_sync_worker() -> None:
                         done=int(tag_sync_state.get("processed") or 0),
                         total=int(tag_sync_state.get("total") or 0),
                     )
-                    from ..app.dependencies import spawn_task
-
-                    spawn_task(tm.persist_history(), "persist task history")
             if _sync_event is not None:
                 try:
                     await asyncio.wait_for(_sync_event.wait(), timeout=1.0)

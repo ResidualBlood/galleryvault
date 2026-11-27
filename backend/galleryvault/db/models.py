@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -38,11 +39,17 @@ class Gallery(Base):
     file_count: Mapped[int | None] = mapped_column(Integer)
     file_size: Mapped[int | None] = mapped_column(BigInteger)
     rating: Mapped[float | None] = mapped_column(Float)
-    expunged: Mapped[bool] = mapped_column(Boolean, default=False)
+    expunged: Mapped[bool] = mapped_column(Boolean, default=False, nullable=True)
     trashed: Mapped[bool] = mapped_column(Boolean, default=False)
     trashed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     storage_type: Mapped[str] = mapped_column(String(16))
     storage_path: Mapped[str] = mapped_column(Text)
+    # Hot/cold is a storage location, not a format: ``storage_type`` keeps
+    # describing the on-disk shape (``cbz``/``folder``) in both tiers.
+    storage_tier: Mapped[str] = mapped_column(
+        String(8), default="hot", server_default=text("'hot'"), nullable=False
+    )
+    cold_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     path_hash: Mapped[str] = mapped_column(String(64))
     storage_mtime_ns: Mapped[int | None] = mapped_column(BigInteger)
     storage_size: Mapped[int | None] = mapped_column(BigInteger)
@@ -55,15 +62,22 @@ class Gallery(Base):
     source_meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     tags_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     category_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
     )
     __table_args__ = (
         Index("idx_galleries_gid", "gid", unique=True, postgresql_where=text("gid IS NOT NULL")),
         Index("idx_galleries_path_hash", "path_hash", unique=True),
         Index("idx_galleries_tags_synced_at", "tags_synced_at"),
         Index("idx_galleries_storage_type", "storage_type"),
+        Index(
+            "idx_galleries_storage_tier_cold",
+            "id",
+            postgresql_where=text("storage_tier = 'cold'"),
+        ),
         Index("idx_galleries_posted_at", "posted_at"),
         Index("idx_galleries_rating", "rating"),
         Index("idx_galleries_page_count", "page_count"),
@@ -76,9 +90,38 @@ class Gallery(Base):
             postgresql_using="btree",
             postgresql_ops={"storage_path": "text_pattern_ops"},
         ),
+        # Full-text and trigram title indexes are created by migrations 0001 /
+        # 0015; declaring them here keeps autogenerate from dropping them.  The
+        # FTS expression must stay byte-identical to what PostgreSQL stores in
+        # pg_get_indexdef, otherwise autogenerate reports a changed index.
+        Index(
+            "idx_galleries_title_fts",
+            text(
+                "to_tsvector('simple'::regconfig, "
+                "(COALESCE(title, ''::text) || ' '::text) "
+                "|| COALESCE(title_jpn, ''::text))"
+            ),
+            postgresql_using="gin",
+        ),
+        Index(
+            "idx_galleries_title_trgm",
+            "title",
+            postgresql_using="gin",
+            postgresql_ops={"title": "gin_trgm_ops"},
+        ),
+        Index(
+            "idx_galleries_title_jpn_trgm",
+            "title_jpn",
+            postgresql_using="gin",
+            postgresql_ops={"title_jpn": "gin_trgm_ops"},
+        ),
         CheckConstraint(
             "local_rating IS NULL OR (local_rating >= 1 AND local_rating <= 5)",
             name="ck_galleries_local_rating",
+        ),
+        CheckConstraint(
+            "storage_tier IN ('hot', 'cold')",
+            name="ck_galleries_storage_tier",
         ),
     )
 
@@ -144,9 +187,16 @@ class DownloadTask(Base):
     total_pages: Mapped[int | None] = mapped_column(Integer)
     error_message: Mapped[str | None] = mapped_column(Text)
     target_path: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # B2/T2.1: download success is only reported after the gallery is in the
+    # library. ``status='downloading' AND ingest_status='pending'`` means the
+    # files are on disk and the DB-driven ingest pump still has to import them.
+    ingest_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    ingest_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -158,9 +208,21 @@ class DownloadTask(Base):
             postgresql_where=text("status IN ('pending', 'downloading')"),
         ),
         Index("idx_download_tasks_status_id", "status", text("id DESC")),
+        Index(
+            "idx_download_tasks_ingest_pending",
+            "id",
+            postgresql_where=text("ingest_status = 'pending'"),
+        ),
+        # Created by migration 0001; declared here so autogenerate keeps them.
+        Index("idx_download_tasks_gid", "gid"),
+        Index("idx_download_tasks_status", "status"),
         CheckConstraint(
             "status IN ('pending', 'downloading', 'success', 'failed', 'cancelled')",
             name="ck_download_task_status",
+        ),
+        CheckConstraint(
+            "ingest_status IS NULL OR ingest_status IN ('pending', 'done', 'failed')",
+            name="ck_download_task_ingest_status",
         ),
         CheckConstraint("max_retries BETWEEN 0 AND 10", name="ck_download_task_max_retries"),
     )
@@ -326,12 +388,66 @@ class DuplicateRecord(Base):
     )
 
 
+class DuplicateGroup(Base):
+    """One duplicate group per kind, reconciled from every duplicate scan.
+
+    ``member_gids`` is the stable identity (sorted) and ``legacy_keys`` keeps the
+    keys a group was known by before upstream versions/merges changed its
+    display key, so a dismissed group can be re-recognised after key drift.
+    ``present`` records whether the latest scan of that kind still found the
+    group; dismissed groups that disappear are kept with ``present=false``
+    instead of being deleted, so they stay dismissed when they return.
+    """
+
+    __tablename__ = "duplicate_groups"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('same_gid', 'cross_gid', 'favorites')",
+            name="ck_duplicate_groups_kind",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'dismissed')",
+            name="ck_duplicate_groups_status",
+        ),
+        UniqueConstraint("kind", "group_key", name="uq_duplicate_groups_kind_key"),
+        Index("idx_duplicate_groups_kind_status_present", "kind", "status", "present"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    group_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), server_default=text("'open'"), nullable=False
+    )
+    member_gids: Mapped[list[int]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb"), nullable=False
+    )
+    legacy_keys: Mapped[list[str]] = mapped_column(
+        JSONB, server_default=text("'[]'::jsonb"), nullable=False
+    )
+    title: Mapped[str | None] = mapped_column(Text)
+    artist: Mapped[str | None] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, server_default=text("'{}'::jsonb"), nullable=False
+    )
+    present: Mapped[bool] = mapped_column(
+        Boolean, server_default=text("true"), nullable=False
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class AppConfig(Base):
     __tablename__ = "app_config"
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[dict[str, Any]] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
     )
 
 
@@ -343,8 +459,29 @@ class ReadingProgress(Base):
     current_page: Mapped[int] = mapped_column(Integer, default=0)
     total_pages: Mapped[int | None] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
+    )
+
+
+class OnlineReadingProgress(Base):
+    """Reading progress for online galleries that have no ``galleries`` row.
+
+    Keyed by ExHentai ``gid`` (no foreign key: the gallery may never be
+    downloaded). ``thumb`` is the gallery thumbnail from EH metadata; resolved
+    page-image URLs are request-scoped and deliberately not persisted.
+    """
+
+    __tablename__ = "online_reading_progress"
+    gid: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    token: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str | None] = mapped_column(Text)
+    thumb: Mapped[str | None] = mapped_column(Text)
+    current_page: Mapped[int] = mapped_column(Integer, default=0)
+    total_pages: Mapped[int | None] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    __table_args__ = (Index("idx_online_reading_progress_updated", "updated_at"),)
 
 
 class ReadingHistory(Base):
@@ -367,7 +504,7 @@ class FavoritesCheckLog(Base):
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     favcat: Mapped[int] = mapped_column(Integer, nullable=False)
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    discovered_gids: Mapped[list[int]] = mapped_column(JSONB, default=list)
+    discovered_gids: Mapped[list[int]] = mapped_column(JSON, default=list)
     attempts: Mapped[int] = mapped_column(Integer, default=1)
     success: Mapped[bool] = mapped_column(Boolean, default=False)
     error_message: Mapped[str | None] = mapped_column(Text)
@@ -414,6 +551,70 @@ class BackgroundJob(Base):
     )
 
 
+class TaskRun(Base):
+    """Durable ledger of task executions (one row per run).
+
+    In-memory task states disappear on restart and ``background_jobs`` is a
+    queue (completed rows are deleted), so neither can back the Logs page or
+    answer "was this task running when the process died?".  A run starts as
+    ``running``; at most one row per ``name`` may be running (partial unique
+    index), which makes stale-state detection a single query.  ``run_id`` is
+    unique per row so a restart cannot overwrite the previous run's row.
+
+    ``payload`` carries task-specific detail (corrupt ids, categories, ...)
+    and is bounded by :class:`~galleryvault.db.repositories.task_runs.TaskRunRepository`
+    at 256 KiB with a ``truncated`` marker.
+    """
+
+    __tablename__ = "task_runs"
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(48), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), default="running", server_default=text("'running'"), nullable=False
+    )
+    stage: Mapped[str | None] = mapped_column(String(32))
+    cancellable: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
+    done: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    total: Mapped[int] = mapped_column(
+        Integer, default=0, server_default=text("0"), nullable=False
+    )
+    last_error: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, server_default=text("'{}'::jsonb"), nullable=False
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('running', 'success', 'failed', 'cancelled', 'interrupted')",
+            name="ck_task_runs_status",
+        ),
+        UniqueConstraint("name", "run_id", name="uq_task_runs_name_run_id"),
+        Index(
+            "idx_task_runs_running_name",
+            "name",
+            unique=True,
+            postgresql_where=text("status = 'running'"),
+        ),
+        Index("idx_task_runs_name_completed", "name", text("completed_at DESC")),
+    )
+
+
 class Series(Base):
     __tablename__ = "series"
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -433,7 +634,7 @@ class SeriesItem(Base):
         ForeignKey("series.id", ondelete="CASCADE"), nullable=False
     )
     gallery_id: Mapped[int] = mapped_column(
-        ForeignKey("galleries.id", ondelete="CASCADE"), primary_key=True, unique=True, nullable=False
+        ForeignKey("galleries.id", ondelete="CASCADE"), primary_key=True, nullable=False
     )
     source: Mapped[str] = mapped_column(String(16), default="auto", server_default=text("'auto'"))
     __table_args__ = (Index("idx_series_items_series_id", "series_id"),)
@@ -456,7 +657,6 @@ class SeriesCloudItem(Base):
     )
     gid: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     __table_args__ = (
-        UniqueConstraint("series_id", "gid"),
         Index("idx_series_cloud_items_series_id", "series_id"),
         Index("idx_series_cloud_items_gid", "gid"),
     )
@@ -472,7 +672,6 @@ class SeriesCloudExclusion(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     __table_args__ = (
-        UniqueConstraint("series_id", "gid"),
         Index("idx_series_cloud_exclusions_series_id", "series_id"),
         Index("idx_series_cloud_exclusions_gid", "gid"),
     )

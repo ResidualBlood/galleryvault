@@ -17,8 +17,9 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..db.models import AppConfig
 from ..db.models import DownloadTask as DownloadTaskModel
+from ..db.repositories.settings import patch_settings
 from ..db.repository import SettingsRepository
-from ..db.session import create_worker_database
+from ..db.session import create_worker_database, safe_transaction
 from ..logging import log_extra
 from ..secrets import (
     decrypt_or_plain,
@@ -27,6 +28,7 @@ from ..secrets import (
     encryption_enabled,
     is_encrypted,
 )
+from ..services.api_token import lock_runtime_auth
 from ..services.settings_service import (
     decrypt_user_settings,
     start_telegram_bot,
@@ -36,8 +38,6 @@ from .dependencies import spawn_task
 from .state import app_state, create_services, sync_state
 
 logger = logging.getLogger(__name__)
-
-translation_update_task: asyncio.Task | None = None
 
 
 async def warmup_database_pool(session_factory: Any) -> None:
@@ -52,23 +52,31 @@ async def warmup_database_pool(session_factory: Any) -> None:
 
 
 async def cleanup_partial_downloads(download_root: str | Path, session_factory: Any) -> None:
-    """Sweep temporary partial download folders (.gv-*) that are no longer active."""
+    """Sweep temporary partial download folders (.gv-*) that are no longer active.
+
+    Fail closed: when the set of active downloads cannot be determined (no
+    session factory, or the query raises), skip the sweep entirely. A transient
+    DB outage at startup must not delete resumable partial downloads.
+    """
+    if not session_factory:
+        logger.warning("partial download cleanup skipped; no database session factory")
+        return
     try:
-        keep_gids: set[int] = set()
-        if session_factory:
-            try:
-                async with session_factory() as session:
-                    rows = await session.execute(
-                        select(DownloadTaskModel.gid).where(
-                            DownloadTaskModel.status.in_(["pending", "downloading"])
-                        )
-                    )
-                    keep_gids = {int(row[0]) for row in rows}
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "could not read active downloads for temp sweep",
-                    extra=log_extra(error=type(exc).__name__),
+        async with session_factory() as session:
+            rows = await session.execute(
+                select(DownloadTaskModel.gid).where(
+                    DownloadTaskModel.status.in_(["pending", "downloading"])
                 )
+            )
+            keep_gids = {int(row[0]) for row in rows}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "partial download cleanup skipped; could not read active downloads",
+            extra=log_extra(error=type(exc).__name__),
+        )
+        return
+
+    try:
         root = Path(download_root)
         if not root.exists():
             return
@@ -87,24 +95,6 @@ async def cleanup_partial_downloads(download_root: str | Path, session_factory: 
         logger.warning("partial download cleanup failed", extra=log_extra(error=type(exc).__name__))
 
 
-async def stop_background_tasks(
-    spawned_tasks: set[asyncio.Task] | None = None,
-    specific_tasks: list[asyncio.Task | None] | None = None,
-) -> None:
-    """Gracefully cancel and await background tasks during shutdown."""
-    tasks_to_cancel: set[asyncio.Task] = set(spawned_tasks or set())
-    for t in specific_tasks or []:
-        if t is not None:
-            tasks_to_cancel.add(t)
-    for task in list(tasks_to_cancel):
-        if not task.done():
-            with contextlib.suppress(Exception):
-                task.cancel()
-    for task in list(tasks_to_cancel):
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await task
-
-
 def hydrate_startup_logs(max_lines: int = 500) -> None:
     """Hydrate memory ring buffer from historical log files during startup."""
     try:
@@ -119,35 +109,28 @@ async def bootstrap_auth() -> None:
     if not app_state.session_factory:
         return
     settings = app_state.settings or get_settings()
-    async with app_state.session_factory() as session:
-        row = await session.get(AppConfig, "runtime_auth")
-        runtime = dict(row.value) if row and isinstance(row.value, dict) else {}
+    async with app_state.session_factory() as session, safe_transaction(session):
+        # Lock and re-read inside the transaction.  A snapshot captured before a
+        # concurrent token revoke/password change must never be written back.
+        await lock_runtime_auth(session)
+        repo = SettingsRepository(session)
+        runtime = await repo.get_extra()
 
-    updates_dict: dict[str, object] = {}
-    if not runtime.get("auth_secret"):
-        if settings.auth_secret:
-            updates_dict["auth_secret"] = settings.auth_secret
-        else:
-            updates_dict["auth_secret"] = secrets.token_urlsafe(32)
-    if settings.auth_password_hash and not runtime.get("auth_password_hash"):
-        updates_dict["auth_password_hash"] = settings.auth_password_hash
+        updates: dict[str, object] = {}
+        if not runtime.get("auth_secret"):
+            updates["auth_secret"] = settings.auth_secret or secrets.token_urlsafe(32)
+        if settings.auth_password_hash and not runtime.get("auth_password_hash"):
+            updates["auth_password_hash"] = settings.auth_password_hash
 
-    if updates_dict:
-        merged = {**runtime, **updates_dict}
+        # Only encrypt the values being added; existing (possibly already
+        # encrypted) fields stay untouched.
         if encryption_enabled():
-            for key in ("auth_secret", "auth_password_hash"):
-                if isinstance(merged.get(key), str):
-                    merged[key] = encrypt(merged[key])
-        async with app_state.session_factory() as session, session.begin():
-            row = await session.get(AppConfig, "runtime_auth")
-            if row is None:
-                session.add(AppConfig(key="runtime_auth", value=merged))
-            else:
-                row.value = merged
-
-    async with app_state.session_factory() as session:
-        row = await session.get(AppConfig, "runtime_auth")
-        final = dict(row.value) if row and isinstance(row.value, dict) else {}
+            for key, value in updates.items():
+                if isinstance(value, str):
+                    updates[key] = encrypt(value)
+        if updates:
+            await repo.save_extra(updates)
+        final = {**runtime, **updates}
 
     opts: dict[str, object] = {"auth_secret": decrypt_or_plain(final.get("auth_secret"))}
     if final.get("auth_password_hash"):
@@ -162,6 +145,8 @@ async def migrate_plaintext_secrets() -> None:
         return
     try:
         async with app_state.session_factory() as session, session.begin():
+            # Serialize with token/credential writers before re-reading.
+            await lock_runtime_auth(session)
             runtime_row = await session.get(AppConfig, "runtime_auth")
             if runtime_row is not None and isinstance(runtime_row.value, dict):
                 value = dict(runtime_row.value)
@@ -174,49 +159,20 @@ async def migrate_plaintext_secrets() -> None:
                 if changed:
                     runtime_row.value = value
             user = await SettingsRepository(session).get()
-            changed = False
+            changes: dict[str, Any] = {}
             cookies = user.get("exhentai_cookies")
             if isinstance(cookies, (dict, list)) and cookies:
-                user["exhentai_cookies"] = encrypt_json(cookies)
-                changed = True
+                changes["exhentai_cookies"] = encrypt_json(cookies)
             token = user.get("telegram_bot_token")
             if isinstance(token, str) and token and not is_encrypted(token):
-                user["telegram_bot_token"] = encrypt(token)
-                changed = True
-            if changed:
-                await SettingsRepository(session).save(user)
+                changes["telegram_bot_token"] = encrypt(token)
+            # Re-encrypt only the keys that were still plaintext; other persisted
+            # keys keep their exact stored representation.
+            if changes:
+                await patch_settings(SettingsRepository(session), changes)
         logger.info("at-rest secret encryption enabled; plaintext values migrated")
     except Exception as exc:  # noqa: BLE001
         logger.warning("plaintext secret migration failed", extra=log_extra(error=str(exc)))
-
-
-def ensure_translation_updater() -> asyncio.Task | None:
-    global translation_update_task
-    settings = app_state.settings or get_settings()
-    if (
-        translation_update_task is not None
-        and not translation_update_task.done()
-        and settings.tag_translation_update_interval_minutes <= 0
-    ):
-        task = translation_update_task
-        translation_update_task = None
-        task.cancel()
-        return None
-
-    if (
-        translation_update_task is None or translation_update_task.done()
-    ) and settings.tag_translation_update_interval_minutes > 0:
-        from ..services.tag_sync_worker import translation_update_loop
-
-        task = spawn_task(translation_update_loop(), "translation updater")
-        if task is not None:
-            translation_update_task = task
-        else:
-            try:
-                translation_update_task = asyncio.create_task(translation_update_loop())
-            except RuntimeError:
-                pass
-    return translation_update_task
 
 
 async def startup() -> None:
@@ -248,6 +204,18 @@ async def startup() -> None:
         sync_state()
         return
 
+    # T7.5: reconcile the durable task ledger before any worker starts. Leftover
+    # ``running`` rows mean the previous process died mid-task -> interrupted;
+    # the newest row per task name rehydrates the polling dicts with
+    # ``running=False`` so a restart does not show stale "in progress" state.
+    try:
+        await app_state.task_manager.restore_state()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "task state restore failed at startup",
+            extra=log_extra(error=type(exc).__name__),
+        )
+
     # Full production startup
     try:
         if app_state.session_factory:
@@ -257,10 +225,21 @@ async def startup() -> None:
     except Exception:  # noqa: BLE001
         logger.warning("user settings could not be loaded at startup")
 
+    # Backfill galleries.storage_tier from the runtime cold roots before any
+    # worker starts; the 0044 migration cannot know them.  Idempotent.
+    try:
+        from ..services.cold_archive import reconcile_storage_tier
+
+        await reconcile_storage_tier(session_factory=app_state.session_factory)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "storage tier reconcile failed at startup",
+            extra=log_extra(error=type(exc).__name__),
+        )
+
     try:
         await bootstrap_auth()
         await migrate_plaintext_secrets()
-        await app_state.task_manager.restore_history()
     except Exception:  # noqa: BLE001
         logger.warning("auth bootstrap failed; using temporary credentials")
 
@@ -272,17 +251,20 @@ async def startup() -> None:
     start_telegram_bot()
     sync_state()
 
-    # Background tasks
+    # Background tasks.  Long-lived loops run under the registry, which restarts
+    # them with backoff when they crash or return unexpectedly; one-shot startup
+    # work keeps using ``spawn_task`` so it is not restarted.
     from ..services.download_worker import (
-        download_retry_sweep_loop,
         download_worker_loop,
+        ingest_pump_loop,
         telegram_flush_loop,
     )
+    from ..services.eh_client import cookie_health_loop, probe_cookie_health
     from ..services.favorites_worker import (
         favorites_poll_loop,
         refresh_favorite_counts,
     )
-    from ..services.tag_sync_worker import tag_sync_worker_loop
+    from ..services.tag_sync_worker import tag_sync_worker_loop, translation_update_loop
     from ..services.tag_translation import load_translations
     from ..services.thumbnail_worker import (
         orphan_thumbnail_cleanup_loop,
@@ -292,67 +274,37 @@ async def startup() -> None:
     )
     from ..services.updates_worker import gallery_updates_finalize_loop
 
-    poll_coro = favorites_poll_loop()
-    poll_task = spawn_task(poll_coro, "favorites poll")
-    if poll_task is None:
-        try:
-            poll_task = asyncio.create_task(poll_coro)
-        except RuntimeError:
-            if hasattr(poll_coro, "close"):
-                poll_coro.close()
-            poll_task = None
-    if poll_task is not None:
-        app_state.extra["favorite_poll_task"] = poll_task
+    workers = app_state.workers
+    for name, factory in (
+        ("favorites_poll", favorites_poll_loop),
+        ("cookie_health", lambda: cookie_health_loop(1800)),
+        ("download_worker", download_worker_loop),
+        ("download_ingest_pump", ingest_pump_loop),
+        ("gallery_updates_finalize", gallery_updates_finalize_loop),
+        ("telegram_flush", telegram_flush_loop),
+        ("tag_sync_worker", tag_sync_worker_loop),
+        ("thumbnail_worker", thumbnail_worker_loop),
+        ("orphan_thumbnail_cleanup", orphan_thumbnail_cleanup_loop),
+        ("thumbnail_periodic_seed", thumbnail_periodic_seed_loop),
+        ("translation_updater", translation_update_loop),
+    ):
+        workers.register(name, factory, restart_policy="always")
 
     spawn_task(refresh_favorite_counts(), "favorite counts startup warmup")
-    try:
-        from ..services.eh_client import cookie_health_loop, probe_cookie_health
-
-        spawn_task(probe_cookie_health(), "cookie health startup probe")
-        loop_task = spawn_task(cookie_health_loop(1800), "cookie health periodic probe")
-        if loop_task is None:
-            try:
-                import asyncio as _asyncio
-
-                loop_task = _asyncio.create_task(cookie_health_loop(1800))
-            except RuntimeError:
-                loop_task = None
-        if loop_task is not None:
-            app_state.extra["cookie_health_task"] = loop_task
-    except Exception:  # noqa: BLE001, S110
-        pass
+    spawn_task(probe_cookie_health(), "cookie health startup probe")
     await cleanup_partial_downloads(settings_obj.download_root, app_state.session_factory)
-
-    app_state.extra["download_worker_task"] = asyncio.create_task(download_worker_loop())
-    app_state.extra["download_retry_sweep_task"] = asyncio.create_task(download_retry_sweep_loop())
-    app_state.extra["gallery_updates_finalize_task"] = asyncio.create_task(
-        gallery_updates_finalize_loop()
-    )
-    app_state.extra["telegram_flush_task"] = asyncio.create_task(telegram_flush_loop())
-    app_state.extra["tag_sync_worker_task"] = asyncio.create_task(tag_sync_worker_loop())
-    app_state.extra["thumb_worker_task"] = asyncio.create_task(thumbnail_worker_loop())
-    app_state.extra["thumb_cleanup_task"] = asyncio.create_task(orphan_thumbnail_cleanup_loop())
-    app_state.extra["thumb_periodic_seed_task"] = asyncio.create_task(
-        thumbnail_periodic_seed_loop()
-    )
+    workers.start_all()
 
     from ..services.storage_usage import storage_tracker
 
-    calib_coro = storage_tracker.calibrate(
-        settings_obj.download_root,
-        Path(settings_obj.thumbnail_cache_dir).parent,
-        library_root=(settings_obj.library_roots or [None])[0],
+    spawn_task(
+        storage_tracker.calibrate(
+            settings_obj.download_root,
+            Path(settings_obj.thumbnail_cache_dir).parent,
+            library_root=(settings_obj.library_roots or [None])[0],
+        ),
+        "storage calibration startup",
     )
-    calib_task = spawn_task(calib_coro, "storage calibration startup")
-    if calib_task is None:
-        try:
-            calib_task = asyncio.create_task(calib_coro)
-        except RuntimeError:
-            if hasattr(calib_coro, "close"):
-                calib_coro.close()
-            calib_task = None
-    if calib_task is not None:
-        app_state.extra["storage_calibrate_task"] = calib_task
 
     if not encryption_enabled():
         logger.warning(
@@ -360,50 +312,28 @@ async def startup() -> None:
             "Set ENCRYPTION_KEY to enable at-rest encryption and avoid plaintext persistence."
         )
     if settings_obj.generate_thumbnails:
-        seed_coro = seed_thumbnails()
-        seed_task = spawn_task(seed_coro, "thumbnail seeding startup")
-        if seed_task is None:
-            try:
-                await seed_coro
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "thumbnail seeding failed", extra=log_extra(error=type(exc).__name__)
-                )
+        spawn_task(seed_thumbnails(), "thumbnail seeding startup")
 
-    ensure_translation_updater()
-    try:
-        coro = asyncio.to_thread(load_translations)
-        t = spawn_task(coro, "load translations")
-        if t is None:
-            await coro
-    except RuntimeError:
-        try:
-            await asyncio.to_thread(load_translations)
-        except Exception:  # noqa: BLE001, S110
-            pass
+    spawn_task(asyncio.to_thread(load_translations), "load translations")
 
     logger.info("GalleryVault started", extra=log_extra(library_roots=settings_obj.library_roots))
     sync_state()
 
 
 async def shutdown() -> None:
-    all_spawned: set[asyncio.Task] = set(app_state.extra.get("spawned_tasks", set()))
-    specific = [
-        translation_update_task,
-        app_state.extra.get("favorite_poll_task"),
-        app_state.extra.get("cookie_health_task"),
-        app_state.extra.get("telegram_bot_task"),
-        app_state.extra.get("download_worker_task"),
-        app_state.extra.get("download_retry_sweep_task"),
-        app_state.extra.get("gallery_updates_finalize_task"),
-        app_state.extra.get("telegram_flush_task"),
-        app_state.extra.get("tag_sync_worker_task"),
-        app_state.extra.get("thumb_worker_task"),
-        app_state.extra.get("thumb_cleanup_task"),
-        app_state.extra.get("thumb_periodic_seed_task"),
-        app_state.extra.get("storage_calibrate_task"),
-    ]
-    await stop_background_tasks(all_spawned, specific)
+    spawned: set[asyncio.Task] = set(app_state.extra.get("spawned_tasks", set()))
+    telegram_task = app_state.extra.get("telegram_bot_task")
+    if telegram_task is not None:
+        spawned.add(telegram_task)
+    await app_state.workers.shutdown(extra_tasks=spawned)
+    app_state.workers.clear()
+    # The supervisor's own cleanup only runs if it was cancelled before it
+    # finished; cancel any orphaned download workers explicitly so no page writer
+    # keeps using the engines we are about to dispose.
+    from ..services.download_worker import stop_download_workers
+
+    with contextlib.suppress(Exception):
+        await stop_download_workers()
     if app_state.telegram is not None:
         if hasattr(app_state.telegram, "flush_summary") and callable(
             app_state.telegram.flush_summary

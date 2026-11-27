@@ -2,22 +2,23 @@
 
 This document explains how GalleryVault is structured. The project is organized
 as a **monorepo** containing the backend (`backend/`: FastAPI JSON API + PostgreSQL),
-the frontend (`frontend/`: vanilla-JS static SPA served by nginx), and documentation.
+the frontend (`frontend/`: Vue 3 + Vite + TypeScript SPA built to `dist/` and
+served by nginx), and documentation.
 This file covers the backend.
 
 ## Architecture overview
 
 ```
-Browser ── :8000 ──▶ nginx (frontend/: static SPA, proxies /api,/login,/logout)
+Browser ── :8000 ──▶ nginx (frontend/: built SPA, proxies /api,/login,/logout)
                           │
 Browser ── :8001 ──▶ FastAPI app (backend/galleryvault/app/main.py + routers) ──▶ PostgreSQL
                           │
                     /api/* JSON routes (galleryvault.app.routers)
 ```
 
-- **Frontend** (`frontend/`) is a build-free vanilla-JS SPA served by nginx on
-  port 8000. nginx reverse-proxies `/api`, `/login` and `/logout` to the backend
-  service (`http://backend:8001`).
+- **Frontend** (`frontend/`) is a Vue 3 + Vite + TypeScript SPA. `npm run build`
+  emits `dist/`, which nginx serves on port 8000 and reverse-proxies `/api`,
+  `/login` and `/logout` to the backend service (`http://backend:8001`).
 - **Backend** (`backend/`) is a **pure JSON API** on port 8001 (container
   port 8001): no HTML pages, no static files.
 - **Database**: PostgreSQL 18 runs alongside the backend in the root
@@ -34,7 +35,7 @@ Key points:
   exempt.
 - **CSRF**: `/api/` mutations check `Origin` → `Referer` → `X-CSRF-Token`
   (cookie `galleryvault_csrf`, set on GET, 30-day `lax`, readable by JS). The
-  SPA (`frontend/assets/core.js`) sends `X-CSRF-Token` on POST/PUT/DELETE/PATCH.
+  SPA (`frontend/src/api/client.ts`) sends `X-CSRF-Token` on POST/PUT/DELETE/PATCH.
   `Sec-Fetch-Site: cross-site` is rejected. HTML form POSTs still use the
   double-submit cookie.
 - **Observability**: `GET /metrics` (exempt from auth) exposes Prometheus-style
@@ -89,18 +90,23 @@ backend/
   requirements.txt
 
 frontend/
-  index.html           # SPA shell (hash-routed)
-  assets/
-    app.js             # vanilla-JS SPA bootstrap
-    components.js      # reusable UI components
-    core.js            # router & API client
-    events.js          # global events & shortcuts
-    i18n.js            # localization loader
-    locales/           # translation dictionary files (en.js, zh.js)
-    state.js           # reactive state management
-    styles.css         # CSS tokens & styles
-    utils.js           # helper functions
-    views/             # modular view modules
+  src/
+    api/               # HTTP client + per-domain endpoint declarations
+    components/        # AppShell, ui/ primitives, action rows
+    composables/       # useViewRequest, usePolling
+    i18n/ locales/     # build-time precompiled messages (zh/, en/)
+    pwa/               # Service Worker registration and update toast
+    reader/            # PageSource: local / online-direct / online-proxy
+    router/            # hash route table and navigation guard
+    stores/            # Pinia stores
+    styles/tokens.css  # design tokens (only source of colour/type/radius)
+    views/             # feature views
+  docs/design/         # DESIGN.md, REFERENCES.md, tokens.required.json, specimen.html
+  e2e/                 # Playwright specs + mocked backend fixtures
+  parity/              # legacy route/endpoint snapshots and waivers
+  scripts/             # check-design / check-dist / check-parity
+  userscript/          # companion userscript source, build, and tests
+  public/              # icons, manifest, companion script artifact
   nginx.conf           # static serving + /api proxy to backend:8001
   Dockerfile
 
@@ -110,9 +116,10 @@ docker-compose.yml     # Production compose
 docker-compose.dev.yml # Development hot-reload compose
 ```
 
-The frontend is intentionally **build-free**: `app.js` is plain ES2020 and
-`styles.css` is plain CSS, loaded directly by the browser. This keeps the
-project free of any Node toolchain and works fully offline.
+The frontend has a Node build step. `npm ci && npm run build` (inside
+`frontend/`) compiles the Vue SFCs, TypeScript, and the precompiled i18n
+messages into `dist/`; nginx serves that directory and the build is fully
+self-hosted (no CDN, CSP `script-src 'self'`).
 
 ## Running locally (without Docker)
 
@@ -139,9 +146,10 @@ project free of any Node toolchain and works fully offline.
    uvicorn galleryvault.app.main:app --reload --port 8001
    ```
 
-4. Serve the frontend separately from `frontend/` in this monorepo,
-   pointing `/api`, `/login`, `/logout` at `http://localhost:8001`. Prefer
-   `docker compose -f docker-compose.dev.yml up -d --build` for hot reload.
+4. Run the frontend dev server from `frontend/` (`npm ci && npm run dev`); it
+   proxies `/api`, `/login`, `/logout` to `$GV_BACKEND` (default
+   `http://127.0.0.1:8201`). `docker compose -f docker-compose.dev.yml up -d
+   --build` starts the hot-reloading backend and database alongside it.
 
 ## Building the container
 
@@ -284,9 +292,10 @@ language.
 - The API returns Chinese `display` fields in three places: `GET /api/galleries`
   per-item `tags[]`, `GET /api/galleries/{id}` `tags[]`, and
   `GET /api/tags/search` `items[]`.
-- The frontend `frontend/assets/app.js` `tagText(tag)` shows `tag.display`
-  when `localStorage.gv_lang==='zh'` and `tag.name` otherwise; the namespace
-  labels `NAMESPACE_LABELS_ZH` also come from the backend constants.
+- The frontend `frontend/src/components/gallery/TagGroups.vue` `tagText(tag)`
+  shows `tag.display` when the active locale is Chinese and `tag.name`
+  otherwise; namespace labels come from the UI message catalog
+  (`gallery.namespaces.*`).
 
 **Syncing with EhTagTranslation / ehsyringe**:
 
@@ -315,20 +324,45 @@ curl -L https://github.com/EhTagTranslation/Database/releases/latest/download/db
 docker compose up -d backend
 ```
 
-You can confirm loading in the container logs:
-`docker logs galleryvault-backend | grep "tag translations"`.
+**List payloads (`tags_limit` / `tag_count`)**:
+
+- Local list endpoints accept a `tags_limit` query parameter: omitted → 4
+  (preserves the historical payload size), `0` → every tag, allowed range
+  `0..64`. They also return `tag_count`, the gallery's real tag total, so a
+  truncated `tags[]` can still render an accurate `+N` badge.
+- Affected handlers: `GET /api/galleries`, `GET /api/galleries/trash`,
+  `GET /api/galleries/expunged`, favorite items (`GET /api/favorites/{favcat}`),
+  series detail, and series member lists. `galleryvault/app/routers/galleries.py`
+  `_tags_for_galleries` / `_tag_count`, `favorites.py` `_clip_tags` /
+  `_tag_count`, and `series.py` `_serialize_card` implement the same contract;
+  `backend/tests/test_list_tags.py` pins it.
+- Browse pages in the frontend request `tags_limit=0` and limit the inline row
+  themselves (4 in list rows, 3 in table rows, 6 in the grid overlay).
+
+**Online search tags (`GET /api/eh/search`)**:
+
+- Each item now also carries `tags[]` (`{namespace, name, display}` where
+  `display` is the Chinese translation), `posted`, and `uploader`. They are
+  parsed from the tag nodes of each listing row (`title="ns:name"` on
+  `.gt` / `.gtl`) in the same HTML response — **no additional EH request**, and
+  the parse stays under the global EH `Semaphore(6)`.
+- Whether a row has tags depends on the account's ExHentai listing display
+  mode: modes that render tags include them, Minimal / thumbnail-like modes
+  return an empty `tags[]`. The frontend shows an explicit "no tags" state and
+  never issues a gdata request to fill the gap.
 
 <a id="dev-compose"></a>
 ## Local Development
 
-For zero-build development with live reloading for both frontend and backend:
+For live-reloading development of both frontend and backend:
 
 ```bash
 cd galleryvault  # monorepo root
-docker compose -f docker-compose.dev.yml up -d --build
+docker compose -f docker-compose.dev.yml up -d --build   # backend + database
+(cd frontend && npm ci && npm run dev)                   # Vite dev server
 ```
 
-- Frontend static assets are mounted live (`./frontend/assets`), browser refresh updates instantly;
+- The frontend runs on Vite (`cd frontend && npm run dev`) with hot module reload and proxies the API to the backend;
 - Backend runs with `uvicorn --reload --reload-dir /app/galleryvault --proxy-headers --forwarded-allow-ips="172.16.0.0/12,127.0.0.1"` (proxy flags ensure real client IP is resolved behind nginx for rate limiting and logging);
 - Development database runs isolated on `./db-data-dev`; host data directories `./library`, `./downloads`, and `./cache` are mapped locally.
 
@@ -343,6 +377,32 @@ docker compose -f docker-compose.dev.yml up -d --build
   already scrubbed in `logging.py`.
 - Do not commit cookies, `.env`, `TEMP/*`, or `media/`. (There is no longer a
   `config.json`; settings persist in the database.)
+- **Runtime settings come from `app_state.settings`.** `get_settings()` /
+  `load_settings()` only build the environment baseline (and `load_settings()`
+  is cached with `lru_cache(maxsize=1)` for the process lifetime). Anything
+  that may be changed through the settings API must read
+  `app_state.settings`, not `get_settings()`, and must not mutate the returned
+  `Settings` in place — use `model_copy(update=...)`.
+
+## Frontend conventions (entry points)
+
+The frontend owns its component and design rules; backend changes that touch
+list payloads or the API contract should read these first:
+
+- **Icons**: Material Symbols Rounded compiled at build time
+  (`unplugin-icons` + `@iconify-json/material-symbols`, Apache-2.0;
+  `unplugin-icons` MIT). Registry: `frontend/src/components/icons/registry.ts`;
+  license notice: `frontend/THIRD_PARTY_NOTICES.md`; rules:
+  `frontend/docs/design/DESIGN.md` §C16.
+- **Base components / control tiers / page skeleton**: `DESIGN.md` §C12 and
+  §C17–C19; components live in `frontend/src/components/ui/` and
+  `frontend/src/components/gallery/`. UI work must not add a UI library.
+- **Views and tags**: `frontend/src/composables/useViewMode.ts` (grid / list /
+  table per page) and `frontend/src/components/tags/` (`tag-utils.ts`,
+  `useTagNavigation.ts`, `TagChip` / `TagList` / `TagMenu`). User-facing rules
+  are documented in `docs/wiki/Library.md` and `docs/wiki/Online-Reading.md`.
+- **Design references**: `frontend/docs/design/REFERENCES.md`, including the
+  polish-phase addition EhViewer_CN_SXJ (GPL-3.0, interaction-only).
 
 ## Production Log Monitoring & Analysis Scripts
 

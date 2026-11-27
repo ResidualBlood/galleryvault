@@ -1,0 +1,920 @@
+{
+  "source": "frontend/assets (grep 复核 inv-frontend.md §2.3)",
+  "generated": "2026-11-12",
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/archive",
+      "views": [
+        "archive"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/archive",
+      "views": [
+        "archive"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/archives/preview",
+      "views": [
+        "global"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/change-password",
+      "views": [
+        "login",
+        "settings",
+        "welcome"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/session",
+      "views": [
+        "global"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/downloads",
+      "views": [
+        "downloads"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/downloads",
+      "views": [
+        "discover"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/downloads/{id}",
+      "views": [
+        "downloads"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/downloads/{id}/cancel",
+      "views": [
+        "downloads"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/downloads/{id}/retry",
+      "views": [
+        "downloads"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/downloads/batch",
+      "views": [
+        "discover",
+        "downloads"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/downloads/clear-success",
+      "views": [
+        "downloads"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/downloads/retry-all",
+      "views": [
+        "downloads"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/eh/search",
+      "views": [
+        "discover"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/{id}/check",
+      "views": [
+        "favlist",
+        "favorites"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/favorites/{id}/items",
+      "views": [
+        "favlist",
+        "favorites"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/add",
+      "views": [
+        "discover",
+        "gallery",
+        "library"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/favorites/categories",
+      "views": [
+        "favlist",
+        "favorites",
+        "global"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/check-all",
+      "views": [
+        "favlist",
+        "favorites"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/favorites/check-status",
+      "views": [
+        "favlist",
+        "favorites"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/download-missing",
+      "views": [
+        "favlist",
+        "favorites"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/download-selected",
+      "views": [
+        "favlist",
+        "favorites",
+        "series"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/favorites/duplicates/ignore",
+      "views": [
+        "duplicates",
+        "dupxgid",
+        "favmanage",
+        "updates",
+        "updignored"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/duplicates/ignore",
+      "views": [
+        "duplicates",
+        "dupxgid",
+        "favmanage"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/favorites/duplicates/ignored",
+      "views": [
+        "updates",
+        "updignored"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/duplicates/scan",
+      "views": [
+        "duplicates",
+        "dupxgid",
+        "favmanage"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/favorites/duplicates/status",
+      "views": [
+        "duplicates",
+        "dupxgid",
+        "favmanage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/move",
+      "views": [
+        "favlist",
+        "favorites",
+        "gallery"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/note",
+      "views": [
+        "gallery"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/remove",
+      "views": [
+        "duplicates",
+        "dupxgid",
+        "favlist",
+        "favmanage",
+        "favorites",
+        "gallery"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/favorites/sync-categories",
+      "views": [
+        "favlist",
+        "favorites"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries",
+      "views": [
+        "global"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/galleries/{id}",
+      "views": [
+        "gallery"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/{id}",
+      "views": [
+        "gallery",
+        "reader"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/galleries/{id}/download-original",
+      "views": [
+        "gallery",
+        "series"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/{id}/export.cbz",
+      "views": [
+        "gallery"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/{id}/favorite",
+      "views": [
+        "gallery"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/{id}/lists",
+      "views": [
+        "gallery"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/galleries/{id}/local",
+      "views": [
+        "gallery"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/{id}/next",
+      "views": [
+        "reader"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/{id}/pages/{id}",
+      "views": [
+        "reader"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/{id}/pages/{id}/meta",
+      "views": [
+        "reader"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/galleries/{id}/progress",
+      "views": [
+        "history"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/{id}/progress",
+      "views": [
+        "gallery"
+      ]
+    },
+    {
+      "method": "PUT",
+      "path": "/api/galleries/{id}/progress",
+      "views": [
+        "reader"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/galleries/{id}/redownload",
+      "views": [
+        "integrity",
+        "series"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/galleries/{id}/sync-tags",
+      "views": [
+        "tags"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/{id}/thumb/{id}",
+      "views": [
+        "browse"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/galleries/delete-bulk",
+      "views": [
+        "library"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/galleries/delete-filtered",
+      "views": [
+        "library"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/expunged",
+      "views": [
+        "recycle"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/galleries/expunged/redownload",
+      "views": [
+        "recycle"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/integrity",
+      "views": [
+        "integrity"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/galleries/integrity/scan",
+      "views": [
+        "integrity"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/galleries/progress",
+      "views": [
+        "history"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/galleries/purge",
+      "views": [
+        "recycle"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/random",
+      "views": [
+        "browse"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/galleries/restore",
+      "views": [
+        "recycle"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/galleries/trash",
+      "views": [
+        "recycle"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/history",
+      "views": [
+        "history"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/history",
+      "views": [
+        "browse",
+        "history"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/duplicates/cross-gid",
+      "views": [
+        "duplicates",
+        "dupxgid",
+        "favmanage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/library/duplicates/cross-gid/refresh",
+      "views": [
+        "duplicates",
+        "dupxgid",
+        "favmanage"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/lists",
+      "views": [
+        "gallery",
+        "library"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/lists",
+      "views": [
+        "library"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/lists/{id}/items",
+      "views": [
+        "gallery",
+        "library"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/lists/{id}/items/remove",
+      "views": [
+        "gallery"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/logs",
+      "views": [
+        "logs"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/logs/{id}/cancel",
+      "views": [
+        "logs"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/logs/archive/cancel",
+      "views": [
+        "archive"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications",
+      "views": [
+        "global"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/clear",
+      "views": [
+        "global"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/notifications/read",
+      "views": [
+        "global"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/onboarding/status",
+      "views": [
+        "login",
+        "welcome"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/pause",
+      "views": [
+        "downloads",
+        "global"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/pause",
+      "views": [
+        "global"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/quota",
+      "views": [
+        "downloads"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/saved-searches/{id}",
+      "views": [
+        "library"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/saved-searches",
+      "views": [
+        "library"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/saved-searches",
+      "views": [
+        "library"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/scan",
+      "views": [
+        "global"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/scan",
+      "views": [
+        "global"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/scan/duplicates",
+      "views": [
+        "duplicates",
+        "dupxgid",
+        "favmanage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/scan/duplicates/{id}/{id}",
+      "views": [
+        "duplicates",
+        "dupxgid",
+        "favmanage"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/scan/duplicates/{id}/resolve",
+      "views": [
+        "duplicates",
+        "dupxgid",
+        "favmanage"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/scan/duplicates/thumb/{id}",
+      "views": [
+        "duplicates",
+        "dupxgid",
+        "favmanage"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/series",
+      "views": [
+        "series"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/series",
+      "views": [
+        "series"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/series/{id}",
+      "views": [
+        "series"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/series/{id}",
+      "views": [
+        "series"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/series/{id}/cloud-candidates",
+      "views": [
+        "series"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/series/{id}/cloud-items",
+      "views": [
+        "series"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/series/{id}/cloud-items/remove",
+      "views": [
+        "series"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/series/{id}/items/remove",
+      "views": [
+        "series"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/series/rebuild",
+      "views": [
+        "series"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings",
+      "views": [
+        "global",
+        "settings"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/settings",
+      "views": [
+        "favlist",
+        "favorites",
+        "login",
+        "settings",
+        "welcome"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/settings/cookie-health",
+      "views": [
+        "global"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/settings/exhentai/test",
+      "views": [
+        "settings"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/system/logs",
+      "views": [
+        "logs"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/system/logs",
+      "views": [
+        "logs"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/system/logs/download",
+      "views": [
+        "logs"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/system/logs/level",
+      "views": [
+        "logs"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/system/purge-archived-sources",
+      "views": [
+        "global"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/system/storage",
+      "views": [
+        "settings"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/tag-sync/repair-categories",
+      "views": [
+        "settings"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/tag-sync/start",
+      "views": [
+        "tags"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/tags/search",
+      "views": [
+        "browse",
+        "tags"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/tags/search/reload",
+      "views": [
+        "tags"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/tags/search/status",
+      "views": [
+        "settings"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/telegram/test",
+      "views": [
+        "settings"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/thumbs/generate",
+      "views": [
+        "settings"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/thumbs/status",
+      "views": [
+        "settings"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/updates",
+      "views": [
+        "updates",
+        "updignored"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/updates/delete",
+      "views": [
+        "updates",
+        "updignored"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/updates/ignore",
+      "views": [
+        "updates",
+        "updignored"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/updates/ignored",
+      "views": [
+        "updates",
+        "updignored"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/updates/scan",
+      "views": [
+        "updates",
+        "updignored"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/updates/status",
+      "views": [
+        "updates",
+        "updignored"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/updates/unignore",
+      "views": [
+        "updates",
+        "updignored"
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/updates/update",
+      "views": [
+        "updates",
+        "updignored"
+      ]
+    }
+  ]
+}

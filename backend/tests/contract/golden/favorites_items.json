@@ -1,0 +1,35 @@
+{
+  "items": [
+    {
+      "category": "<value>",
+      "cover_data": "<value>",
+      "cover_url": "<value>",
+      "favcat": "<value>",
+      "file_size": "<value>",
+      "filecount": "<value>",
+      "filesize": "<value>",
+      "first_seen_at": "<value>",
+      "gallery_id": "<value>",
+      "gid": "<value>",
+      "is_local": "<value>",
+      "note": "<value>",
+      "page_count": "<value>",
+      "tag_count": "<value>",
+      "tags": [
+        {
+          "display": "<value>",
+          "name": "<value>",
+          "namespace": "<value>"
+        }
+      ],
+      "title": "<value>",
+      "title_jpn": "<value>",
+      "token": "<value>",
+      "url": "<value>"
+    }
+  ],
+  "page": "<value>",
+  "page_size": "<value>",
+  "state": "<value>",
+  "total": "<value>"
+}

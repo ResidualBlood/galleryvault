@@ -22,7 +22,16 @@ import httpx
 import pytest
 
 E2E_BASE_URL = os.getenv("E2E_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
-E2E_PASSWORD = os.getenv("E2E_PASSWORD", os.getenv("LOGIN_PASSWORD", "password"))
+# 该套件会登录并读写真实测试后端（画廊进度、settings 等），因此默认不随 pytest 运行：
+# 只有显式设置 E2E_PASSWORD 或 E2E_BASE_URL 时才视为 opt-in。口令只从环境读取，
+# 不提供写死的默认值（LOGIN_PASSWORD 仅作为口令来源兼容，不单独触发 opt-in）。
+E2E_OPT_IN = bool(os.getenv("E2E_PASSWORD") or os.getenv("E2E_BASE_URL"))
+E2E_PASSWORD = os.getenv("E2E_PASSWORD") or os.getenv("LOGIN_PASSWORD") or ""
+
+pytestmark = pytest.mark.skipif(
+    not E2E_OPT_IN,
+    reason="real-backend E2E is opt-in: set E2E_PASSWORD or E2E_BASE_URL to run",
+)
 
 
 def check_e2e_prerequisites(base_url: str) -> None:
@@ -188,13 +197,6 @@ async def test_real_user_workflow_e2e():
             fav_cats = fav_cats_resp.json()
             assert isinstance(fav_cats, list)
 
-            # 更新/配置收藏分类 (favcat 0)
-            update_favcat_resp = await client.post(
-                "/api/favorites/categories",
-                json={"favcat": 0, "enabled": True, "mode": "gallery"},
-            )
-            assert update_favcat_resp.status_code == 200, f"Update favcat failed: {update_favcat_resp.text}"
-
             if active_gid and active_token:
                 created_fav_gids.append(active_gid)
                 # 添加收藏
@@ -258,10 +260,15 @@ async def test_real_user_workflow_e2e():
                 )
                 assert add_item_resp.status_code == 200, f"Add item to list failed: {add_item_resp.text}"
 
-                # 查询列表详情
-                get_list_resp = await client.get(f"/api/lists/{list_id}")
-                assert get_list_resp.status_code == 200
-                assert target_gallery_id in get_list_resp.json().get("gallery_ids", [])
+                # 查询列表归属（列表详情 GET 已按 T2.7 移除）
+                lists_of_gallery = await client.get(
+                    f"/api/galleries/{target_gallery_id}/lists"
+                )
+                assert lists_of_gallery.status_code == 200
+                assert any(
+                    item["id"] == list_id
+                    for item in lists_of_gallery.json().get("items", [])
+                )
 
                 # 从列表移除画廊
                 rm_item_resp = await client.post(
@@ -269,6 +276,15 @@ async def test_real_user_workflow_e2e():
                     json={"gallery_ids": [target_gallery_id]},
                 )
                 assert rm_item_resp.status_code == 200, f"Remove item from list failed: {rm_item_resp.text}"
+
+                lists_after_remove = await client.get(
+                    f"/api/galleries/{target_gallery_id}/lists"
+                )
+                assert lists_after_remove.status_code == 200
+                assert all(
+                    item["id"] != list_id
+                    for item in lists_after_remove.json().get("items", [])
+                )
 
             # 重命名自定义列表
             renamed_name = f"{list_name}_renamed"

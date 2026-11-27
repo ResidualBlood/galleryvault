@@ -43,7 +43,7 @@ class BaseService:
     ) -> asyncio.Task | None:
         """Spawn an asynchronous background task via TaskDispatcher if configured."""
         if self.task_dispatcher is not None:
-            return self.task_dispatcher.spawn(name, coro, **kwargs)
+            return self.task_dispatcher.spawn(coro, operation=name)
         self.logger.info("Spawning standalone task without TaskDispatcher: %s", name)
         return asyncio.create_task(coro)
 
@@ -104,7 +104,7 @@ class BaseService:
         if self.task_dispatcher is not None:
             async with self.task_dispatcher.audit_scope(
                 task_type=task_type,
-                message=message,
+                operation_name=message,
                 details=payload,
             ):
                 yield payload

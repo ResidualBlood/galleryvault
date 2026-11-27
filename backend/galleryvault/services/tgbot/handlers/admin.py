@@ -98,7 +98,7 @@ async def cmd_cookie(ctx: BotContext) -> None:
 async def cmd_quota(ctx: BotContext) -> None:
     """Query E-Hentai image download quota and GP balance."""
     try:
-        from galleryvault.app.routers.tasks import get_quota
+        from galleryvault.services.quota import get_quota
 
         res = await get_quota()
         img_limit = res.get("image_limit") or res.get("image_limits")
@@ -120,15 +120,14 @@ async def cmd_quota(ctx: BotContext) -> None:
 async def cmd_storage(ctx: BotContext) -> None:
     """Query storage usage for library, downloads, cache and underlying disk."""
     try:
-        from galleryvault.app.routers.settings import system_storage
+        from galleryvault.services.storage_usage import system_storage
 
-        if app_state.session_factory is not None:
-            try:
-                data = await system_storage()
-            except Exception:  # noqa: BLE001
-                data = await system_storage(session=object())  # type: ignore[arg-type]
+        session_factory = app_state.session_factory
+        if session_factory is not None:
+            async with session_factory() as session:
+                data = await system_storage(session)
         else:
-            data = await system_storage(session=object())  # type: ignore[arg-type]
+            data = await system_storage(None)
 
         lib = data.get("library") if isinstance(data.get("library"), dict) else {}
         cold = data.get("cold") if isinstance(data.get("cold"), dict) else {}

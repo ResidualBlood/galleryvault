@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "archive_error": "<value>",
+      "archive_fallback": "<value>",
+      "archive_status": "<value>",
+      "cover_url": "<value>",
+      "current_page": "<value>",
+      "error_message": "<value>",
+      "eta_seconds": "<value>",
+      "gallery_id": "<value>",
+      "gid": "<value>",
+      "id": "<value>",
+      "ingest_status": "<value>",
+      "max_retries": "<value>",
+      "mode": "<value>",
+      "quality": "<value>",
+      "retry_count": "<value>",
+      "speed": "<value>",
+      "status": "<value>",
+      "title": "<value>",
+      "total_pages": "<value>"
+    }
+  ],
+  "page": "<value>",
+  "page_size": "<value>",
+  "total": "<value>"
+}

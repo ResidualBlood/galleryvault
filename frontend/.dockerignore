@@ -1,3 +1,24 @@
+# Node / build output
+node_modules
+dist
+
+# Test and tooling artifacts (not needed by `npm run build`)
+e2e
+# `src/views/settings/schema.ts` imports the parity map at build time, so keep
+# that one file while dropping the rest of the snapshot.
+parity/*
+!parity/settings-map.json
+docs
+scripts
+playwright-report
+test-results
+blob-report
+coverage
+
+# VCS and local editor noise
 .git
 .gitignore
+.vscode
+.DS_Store
+*.local
 *.md

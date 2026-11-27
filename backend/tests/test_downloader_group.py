@@ -13,8 +13,8 @@ import pytest
 
 from galleryvault.app.state import app_state
 from galleryvault.config import Settings, get_settings
-from galleryvault.services import download_worker
-from galleryvault.services.download_worker import run_download
+from galleryvault.services.download import attempt, ingest_pump, wake
+from galleryvault.services.download.attempt import run_download
 from galleryvault.services.downloader import (
     Downloader,
     DownloadResult,
@@ -710,16 +710,16 @@ def _patch_cancel_context(monkeypatch: pytest.MonkeyPatch, *, row_provider: Any,
     monkeypatch.setattr(app_state, "worker_session_factory", None)
     monkeypatch.setattr(app_state, "worker_engine", None)
     monkeypatch.setattr(app_state, "_worker_bound_loop", None)
-    monkeypatch.setattr(download_worker, "_get_background_session_factory", lambda: session_factory)
+    monkeypatch.setattr(wake, "_get_background_session_factory", lambda: session_factory)
     monkeypatch.setattr(app_state, "downloader", downloader)
     monkeypatch.setattr(app_state, "settings", _CancelSettings(Path("/tmp")))
-    monkeypatch.setattr(download_worker, "maybe_scan_after_download", lambda result: None)
+    monkeypatch.setattr(ingest_pump, "maybe_scan_after_download", lambda result: None)
     notifications: list[tuple[str, object, object]] = []
 
     async def record_notification(kind: str, title: Any, detail: Any = None) -> None:
         notifications.append((kind, title, detail))
 
-    monkeypatch.setattr(download_worker, "record_download_notification", record_notification)
+    monkeypatch.setattr(attempt, "record_download_notification", record_notification)
     return notifications
 
 
@@ -782,10 +782,13 @@ async def test_success_path_when_no_cancel(monkeypatch: pytest.MonkeyPatch) -> N
     )
 
     await run_download(DownloadTask(7, "token", "t", id=44))
-    assert row.status == "success"
+    # T2.1: files on disk only park the task for ingest; ``success`` and the
+    # ok notification are written by the ingest pump.
+    assert row.status == "downloading"
+    assert row.ingest_status == "pending"
     assert row.target_path == "/tmp/dl"
     assert row.retry_count == 0
-    assert notifications == [("ok", "t", "5")]
+    assert notifications == []
 
 
 @pytest.mark.asyncio

@@ -186,3 +186,66 @@ def test_opds_valid_cookie_without_basic_returns_atom(
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("application/atom+xml")
 
+
+class _ExportSession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return False
+
+
+def test_export_cbz_unauthenticated_returns_401_with_realm(
+    opds_test_client: TestClient,
+) -> None:
+    """OPDS acquisition links must offer HTTP Basic, not a bare 401."""
+    resp = opds_test_client.get("/api/galleries/7/export.cbz")
+    assert resp.status_code == 401
+    assert resp.headers.get("www-authenticate") == 'Basic realm="GalleryVault OPDS"'
+
+
+def test_export_cbz_invalid_basic_auth_returns_401_with_realm(
+    opds_test_client: TestClient,
+) -> None:
+    resp = opds_test_client.get(
+        "/api/galleries/7/export.cbz",
+        headers={"authorization": _make_basic_auth("galleryvault", "wrong-pass")},
+    )
+    assert resp.status_code == 401
+    assert resp.headers.get("www-authenticate") == 'Basic realm="GalleryVault OPDS"'
+
+
+def test_export_cbz_basic_auth_downloads_cbz(
+    opds_test_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    from types import SimpleNamespace
+
+    from galleryvault.app.routers import galleries as galleries_mod
+    from galleryvault.app.state import app_state
+
+    cbz = tmp_path / "demo.cbz"
+    cbz.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+
+    async def fake_invoke(identifier: int, session=None):
+        gallery = SimpleNamespace(
+            id=identifier, title="Demo", gid=42, storage_path=str(cbz)
+        )
+        return gallery, []
+
+    orig_factory = app_state.session_factory
+    app_state.session_factory = lambda: _ExportSession()
+    monkeypatch.setattr(galleries_mod, "_invoke_gallery", fake_invoke)
+    try:
+        resp = opds_test_client.get(
+            "/api/galleries/7/export.cbz",
+            headers={"authorization": _make_basic_auth("galleryvault", "opds-pass")},
+        )
+    finally:
+        app_state.session_factory = orig_factory
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/zip"
+    assert resp.content == cbz.read_bytes()
+

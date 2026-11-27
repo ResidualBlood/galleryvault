@@ -1,0 +1,27 @@
+{
+  "count": "<value>",
+  "groups": [
+    {
+      "artist": "<value>",
+      "id": "<value>",
+      "items": [
+        {
+          "cover_url": "<value>",
+          "display_title": "<value>",
+          "favorited": "<value>",
+          "gallery_id": "<value>",
+          "gid": "<value>",
+          "storage_path": "<value>",
+          "storage_type": "<value>",
+          "title": "<value>",
+          "title_jpn": "<value>",
+          "token": "<value>",
+          "url": "<value>"
+        }
+      ],
+      "key": "<value>",
+      "status": "<value>"
+    }
+  ],
+  "ready": "<value>"
+}

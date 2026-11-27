@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -213,6 +216,33 @@ async def test_resolve_search_tokens_changed_flag() -> None:
     assert keywords == "big_breasts"
 
 
+def test_import_linter_contracts() -> None:
+    """The architecture contracts in backend/.importlinter are all kept.
+
+    The expected count is pinned: a contract that silently disappears must fail
+    the suite instead of lowering the number while still passing.
+    """
+    lint_imports = shutil.which("lint-imports")
+    if lint_imports is None:
+        pytest.skip("import-linter is not installed")
+
+    backend_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [lint_imports],
+        cwd=backend_root,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    # 2 baseline contracts + 8 package-split contracts (B9/B10) + 5 domain
+    # internals contracts + 1 edge contract (B11).  The reduced B11 scope has no
+    # services.organize domain and no edge-uses-public-faces contract, hence 16.
+    assert "Contracts: 16 kept, 0 broken" in output, output
+
+
 def test_request_schemas_compatibility() -> None:
     fav_req = FavoritesRemoveRequest(gids=[101, 102], delete_local=True)
     assert fav_req.gids == [101, 102]
@@ -320,7 +350,13 @@ def test_api_route_contracts_with_client(monkeypatch) -> None:
     from galleryvault.config import Settings
 
     orig_settings = app_state.settings
-    app_state.settings = Settings(auth_required=False, exhentai_base_url="https://exhentai.org")
+    app_state.settings = Settings(
+        auth_required=False,
+        exhentai_base_url="https://exhentai.org",
+        # Explicit secret keeps the first request off the database: host test
+        # runs have no reachable PG, and this test only checks route shapes.
+        auth_secret="task-state-persistence-test-secret",
+    )
     client = TestClient(app)
 
     try:

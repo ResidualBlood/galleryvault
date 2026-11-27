@@ -112,6 +112,58 @@
         }
       }
     },
+    "/api/auth/api-token": {
+      "get": {
+        "summary": "Get Api Token",
+        "description": "Report whether a token exists; the token/hash is never returned.",
+        "operationId": "get_api_token_api_auth_api_token_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Api Token Api Auth Api Token Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Api Token",
+        "description": "Generate the single companion-script token; plaintext is returned once.",
+        "operationId": "create_api_token_api_auth_api_token_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Create Api Token Api Auth Api Token Post"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Revoke Api Token",
+        "description": "Revoke the current token; a later request must use a newly generated one.",
+        "operationId": "revoke_api_token_api_auth_api_token_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
     "/api/onboarding/status": {
       "get": {
         "summary": "Onboarding Status",
@@ -443,6 +495,22 @@
             }
           },
           {
+            "name": "storage_tier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Storage Tier"
+            }
+          },
+          {
             "name": "min_local_rating",
             "in": "query",
             "required": false,
@@ -475,6 +543,24 @@
               ],
               "title": "List Id"
             }
+          },
+          {
+            "name": "tags_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 64,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags Limit"
+            }
           }
         ],
         "responses": {
@@ -483,9 +569,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List Galleries Api Galleries Get"
+                  "$ref": "#/components/schemas/GalleryListResponse"
                 }
               }
             }
@@ -527,6 +611,24 @@
               "default": 24,
               "title": "Page Size"
             }
+          },
+          {
+            "name": "tags_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 64,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags Limit"
+            }
           }
         ],
         "responses": {
@@ -535,9 +637,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List Trash Api Galleries Trash Get"
+                  "$ref": "#/components/schemas/GalleryTrashResponse"
                 }
               }
             }
@@ -579,6 +679,24 @@
               "default": 24,
               "title": "Page Size"
             }
+          },
+          {
+            "name": "tags_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 64,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags Limit"
+            }
           }
         ],
         "responses": {
@@ -587,9 +705,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List Expunged Api Galleries Expunged Get"
+                  "$ref": "#/components/schemas/GalleryExpungedResponse"
                 }
               }
             }
@@ -679,9 +795,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List Integrity Api Galleries Integrity Get"
+                  "$ref": "#/components/schemas/GalleryIntegrityResponse"
                 }
               }
             }
@@ -799,26 +913,6 @@
         }
       }
     },
-    "/api/galleries/categories": {
-      "get": {
-        "summary": "List Categories",
-        "operationId": "list_categories_api_galleries_categories_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response List Categories Api Galleries Categories Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/galleries/random": {
       "get": {
         "summary": "Random Gallery",
@@ -901,9 +995,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Gallery Api Galleries  Identifier  Get"
+                  "$ref": "#/components/schemas/GalleryDetail"
                 }
               }
             }
@@ -1113,56 +1205,6 @@
             }
           }
         }
-      },
-      "post": {
-        "summary": "Toggle Gallery Favorite",
-        "description": "Deprecated: prefer POST /api/favorites/add for single/batch adds.\n\nKept for backward compat (single gallery toggle). Batch adds MUST use\n/api/favorites/add which batches via successful_gids and respects cloud\nsuccess before writing favorite_items.",
-        "operationId": "toggle_gallery_favorite_api_galleries__identifier__favorite_post",
-        "parameters": [
-          {
-            "name": "identifier",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Identifier"
-            }
-          },
-          {
-            "name": "favcat",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 0,
-              "title": "Favcat"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Toggle Gallery Favorite Api Galleries  Identifier  Favorite Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/api/galleries/{identifier}/progress": {
@@ -1189,55 +1231,6 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Gallery Progress Api Galleries  Identifier  Progress Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "summary": "Save Gallery Progress",
-        "operationId": "save_gallery_progress_api_galleries__identifier__progress_post",
-        "parameters": [
-          {
-            "name": "identifier",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Identifier"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProgressRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Save Gallery Progress Api Galleries  Identifier  Progress Post"
                 }
               }
             }
@@ -1334,47 +1327,6 @@
         }
       }
     },
-    "/api/galleries/{identifier}/read": {
-      "post": {
-        "summary": "Mark Gallery Read",
-        "operationId": "mark_gallery_read_api_galleries__identifier__read_post",
-        "parameters": [
-          {
-            "name": "identifier",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Identifier"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Mark Gallery Read Api Galleries  Identifier  Read Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/history": {
       "get": {
         "summary": "History",
@@ -1429,9 +1381,31 @@
       "delete": {
         "summary": "Clear History",
         "operationId": "clear_history_api_history_delete",
+        "parameters": [
+          {
+            "name": "confirm",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Confirm"
+            }
+          }
+        ],
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
@@ -1440,9 +1414,31 @@
       "delete": {
         "summary": "Clear All Gallery Progress",
         "operationId": "clear_all_gallery_progress_api_galleries_progress_delete",
+        "parameters": [
+          {
+            "name": "confirm",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Confirm"
+            }
+          }
+        ],
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
@@ -1486,6 +1482,16 @@
               "default": false,
               "title": "Archive"
             }
+          },
+          {
+            "name": "allow_copy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow Copy"
+            }
           }
         ],
         "responses": {
@@ -1497,6 +1503,90 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Redownload Gallery Api Galleries  Identifier  Redownload Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/galleries/{identifier}/archive": {
+      "post": {
+        "summary": "Archive Gallery",
+        "description": "Archive a single hot gallery to cold storage (background).",
+        "operationId": "archive_gallery_api_galleries__identifier__archive_post",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Identifier"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Archive Gallery Api Galleries  Identifier  Archive Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/galleries/{identifier}/unarchive": {
+      "post": {
+        "summary": "Unarchive Gallery",
+        "description": "Move a cold gallery back to the download root (background, cancellable).",
+        "operationId": "unarchive_gallery_api_galleries__identifier__unarchive_post",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Identifier"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Unarchive Gallery Api Galleries  Identifier  Unarchive Post"
                 }
               }
             }
@@ -1728,6 +1818,56 @@
         }
       }
     },
+    "/api/galleries/{identifier}/pages/{page_index}/meta": {
+      "get": {
+        "summary": "Get Page Meta",
+        "operationId": "get_page_meta_api_galleries__identifier__pages__page_index__meta_get",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Identifier"
+            }
+          },
+          {
+            "name": "page_index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Page Index"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Page Meta Api Galleries  Identifier  Pages  Page Index  Meta Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/galleries/{identifier}/thumb/{page_index}": {
       "get": {
         "summary": "Get Thumbnail",
@@ -1860,9 +2000,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List Downloads Api Downloads Get"
+                  "$ref": "#/components/schemas/_DownloadListResponseOut"
                 }
               }
             }
@@ -1933,6 +2071,26 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Clear Success Downloads Api Downloads Clear Success Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/downloads/retry-all": {
+      "post": {
+        "summary": "Retry All Downloads",
+        "operationId": "retry_all_downloads_api_downloads_retry_all_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Retry All Downloads Api Downloads Retry All Post"
                 }
               }
             }
@@ -2417,6 +2575,27 @@
         }
       }
     },
+    "/api/system/purge-archived-sources": {
+      "post": {
+        "summary": "Purge Archived Sources",
+        "description": "Purge leftover source directories for galleries already archived to cold storage.",
+        "operationId": "purge_archived_sources_api_system_purge_archived_sources_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Purge Archived Sources Api System Purge Archived Sources Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/favorites/{favcat}/items": {
       "get": {
         "summary": "Favorite Items",
@@ -2732,6 +2911,24 @@
               ],
               "title": "Min Local Rating"
             }
+          },
+          {
+            "name": "tags_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 64,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags Limit"
+            }
           }
         ],
         "responses": {
@@ -2876,26 +3073,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/favorites/sync": {
-      "post": {
-        "summary": "Favorites Sync",
-        "operationId": "favorites_sync_api_favorites_sync_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Favorites Sync Api Favorites Sync Post"
                 }
               }
             }
@@ -3087,6 +3264,7 @@
     "/api/favorites/duplicates/status": {
       "get": {
         "summary": "Duplicates Status",
+        "description": "Progress from the task manager, groups from ``kind='favorites'`` rows.",
         "operationId": "duplicates_status_api_favorites_duplicates_status_get",
         "responses": {
           "200": {
@@ -3305,82 +3483,12 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
                   "items": {
-                    "type": "object",
-                    "additionalProperties": true
+                    "additionalProperties": true,
+                    "type": "object"
                   },
+                  "type": "array",
                   "title": "Response Favorite Categories Api Favorites Categories Get"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "summary": "Update Favorite Category",
-        "operationId": "update_favorite_category_api_favorites_categories_post",
-        "parameters": [
-          {
-            "name": "favcat",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 0,
-              "title": "Favcat"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FavoriteCategoryRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Update Favorite Category Api Favorites Categories Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/favorites/metadata-status": {
-      "get": {
-        "summary": "Favorites Metadata Status",
-        "operationId": "favorites_metadata_status_api_favorites_metadata_status_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Favorites Metadata Status Api Favorites Metadata Status Get"
                 }
               }
             }
@@ -3408,26 +3516,6 @@
         }
       }
     },
-    "/api/favorites/compute-sizes": {
-      "post": {
-        "summary": "Compute Favorite Sizes",
-        "operationId": "compute_favorite_sizes_api_favorites_compute_sizes_post",
-        "responses": {
-          "202": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response Compute Favorite Sizes Api Favorites Compute Sizes Post"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/favorites/download-missing": {
       "post": {
         "summary": "Download Missing Favorites",
@@ -3441,29 +3529,6 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Download Missing Favorites Api Favorites Download Missing Post"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/favorites/fetch-categories": {
-      "post": {
-        "summary": "Sync Favorite Categories",
-        "operationId": "sync_favorite_categories_api_favorites_fetch_categories_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "type": "array",
-                  "title": "Response Sync Favorite Categories Api Favorites Fetch Categories Post"
                 }
               }
             }
@@ -3487,48 +3552,6 @@
                   },
                   "type": "array",
                   "title": "Response Sync Favorite Categories Api Favorites Sync Categories Post"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/favorites/check": {
-      "post": {
-        "summary": "Check Favorites",
-        "operationId": "check_favorites_api_favorites_check_post",
-        "parameters": [
-          {
-            "name": "favcat",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 0,
-              "title": "Favcat"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Check Favorites Api Favorites Check Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -3714,6 +3737,7 @@
     "/api/tags/search/reload": {
       "post": {
         "summary": "Tag Translation Reload",
+        "description": "Start a tag-translation update in the background.\n\nThe EhTagTranslation download takes seconds; awaiting it inside the request\nmade a 202 endpoint block for 6.7s.  Claim ``running`` synchronously (no\nawait between check and claim) so a second request cannot spawn a duplicate\nbefore the coroutine starts, then hand off to ``translation_update_once``,\nwhich owns the ``tm.track_task(\"translation\")`` lifecycle.",
         "operationId": "tag_translation_reload_api_tags_search_reload_post",
         "responses": {
           "202": {
@@ -3968,6 +3992,47 @@
         }
       }
     },
+    "/api/archive/restore": {
+      "post": {
+        "summary": "Restore Archive",
+        "description": "Move the given cold galleries back to the download root.",
+        "operationId": "restore_archive_api_archive_restore_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveRestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Restore Archive Api Archive Restore Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tag-sync/status": {
       "get": {
         "summary": "Tag Sync Status",
@@ -3991,7 +4056,7 @@
     "/api/tag-sync/refresh-categories": {
       "post": {
         "summary": "Trigger Category Refresh",
-        "description": "Start a one-time 大分类 backfill for galleries stuck in ``other``.",
+        "description": "Start a one-time \u5927\u5206\u7c7b backfill for galleries stuck in ``other``.",
         "operationId": "trigger_category_refresh_api_tag_sync_refresh_categories_post",
         "responses": {
           "202": {
@@ -4002,6 +4067,27 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Trigger Category Refresh Api Tag Sync Refresh Categories Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tag-sync/repair-categories": {
+      "post": {
+        "summary": "Repair Categories",
+        "description": "One-click local repair for galleries stuck in misc/other using cached metadata.",
+        "operationId": "repair_categories_api_tag_sync_repair_categories_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Repair Categories Api Tag Sync Repair Categories Post"
                 }
               }
             }
@@ -4228,6 +4314,63 @@
         }
       }
     },
+    "/api/scan/duplicates/{gid}/{status}": {
+      "post": {
+        "summary": "Set Duplicate Status Route",
+        "description": "Set a duplicate group's status through the canonical frontend route.\n\nDeclared after ``/resolve``, ``/dismiss`` and ``/restore`` so those keep\nprecedence; B5 collapses the legacy routes into this one.",
+        "operationId": "set_duplicate_status_route_api_scan_duplicates__gid___status__post",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "status",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "open",
+                "dismissed"
+              ],
+              "type": "string",
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Set Duplicate Status Route Api Scan Duplicates  Gid   Status  Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/scan/duplicates/thumb/{key}": {
       "get": {
         "summary": "Duplicate Thumb",
@@ -4267,17 +4410,130 @@
     },
     "/api/library/duplicates/cross-gid": {
       "get": {
-        "summary": "Get Cross Gid Duplicates",
-        "operationId": "get_cross_gid_duplicates_api_library_duplicates_cross_gid_get",
+        "summary": "List Cross Gid Groups",
+        "description": "List persisted cross-GID groups (T5.3: ``kind='cross_gid'`` rows).\n\n``ready`` means the scan has completed at least once for this kind.  Rows a\nscan no longer finds keep ``present=false``; dismissed ones stay restorable,\nopen ones are dropped by the sync, so ``present`` only hides stale payloads.",
+        "operationId": "list_cross_gid_groups_api_library_duplicates_cross_gid_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "open",
+                "dismissed"
+              ],
+              "type": "string",
+              "default": "open",
+              "title": "Status"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Get Cross Gid Duplicates Api Library Duplicates Cross Gid Get"
+                  "additionalProperties": true,
+                  "title": "Response List Cross Gid Groups Api Library Duplicates Cross Gid Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/duplicates/cross-gid/{group_id}/dismiss": {
+      "post": {
+        "summary": "Dismiss Cross Gid Duplicate",
+        "operationId": "dismiss_cross_gid_duplicate_api_library_duplicates_cross_gid__group_id__dismiss_post",
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Dismiss Cross Gid Duplicate Api Library Duplicates Cross Gid  Group Id  Dismiss Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/duplicates/cross-gid/{group_id}/restore": {
+      "post": {
+        "summary": "Restore Cross Gid Duplicate",
+        "operationId": "restore_cross_gid_duplicate_api_library_duplicates_cross_gid__group_id__restore_post",
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Group Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Restore Cross Gid Duplicate Api Library Duplicates Cross Gid  Group Id  Restore Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -4287,17 +4543,17 @@
     },
     "/api/library/duplicates/cross-gid/refresh": {
       "post": {
-        "summary": "Refresh Cross Gid Duplicates",
-        "operationId": "refresh_cross_gid_duplicates_api_library_duplicates_cross_gid_refresh_post",
+        "summary": "Refresh Cross Gid Groups",
+        "operationId": "refresh_cross_gid_groups_api_library_duplicates_cross_gid_refresh_post",
         "responses": {
-          "200": {
+          "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
                   "additionalProperties": true,
                   "type": "object",
-                  "title": "Response Refresh Cross Gid Duplicates Api Library Duplicates Cross Gid Refresh Post"
+                  "title": "Response Refresh Cross Gid Groups Api Library Duplicates Cross Gid Refresh Post"
                 }
               }
             }
@@ -4347,9 +4603,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Gallery Updates List Api Updates Get"
+                  "$ref": "#/components/schemas/GalleryUpdatesListResponse"
                 }
               }
             }
@@ -4685,6 +4939,54 @@
             }
           },
           {
+            "name": "prev",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Prev"
+            }
+          },
+          {
+            "name": "jump",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Jump"
+            }
+          },
+          {
+            "name": "seek",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Seek"
+            }
+          },
+          {
             "name": "list",
             "in": "query",
             "required": false,
@@ -4720,6 +5022,451 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Eh Search Api Eh Search Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/galleries/{gid}/{token}": {
+      "get": {
+        "summary": "Eh Online Gallery Detail",
+        "operationId": "eh_online_gallery_detail_api_eh_galleries__gid___token__get",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Eh Online Gallery Detail Api Eh Galleries  Gid   Token  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/galleries/{gid}/{token}/pages": {
+      "get": {
+        "summary": "Eh Online Pages",
+        "operationId": "eh_online_pages_api_eh_galleries__gid___token__pages_get",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          },
+          {
+            "name": "p",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "P"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Eh Online Pages Api Eh Galleries  Gid   Token  Pages Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/galleries/{gid}/{token}/pages/{n}/resolve": {
+      "get": {
+        "summary": "Eh Online Resolve Page",
+        "description": "Resolve one page to a direct H@H image URL (browser fetches the bytes).",
+        "operationId": "eh_online_resolve_page_api_eh_galleries__gid___token__pages__n__resolve_get",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "N"
+            }
+          },
+          {
+            "name": "retry",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 2,
+              "minimum": 0,
+              "default": 0,
+              "title": "Retry"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Eh Online Resolve Page Api Eh Galleries  Gid   Token  Pages  N  Resolve Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/status": {
+      "get": {
+        "summary": "Eh Local Status",
+        "operationId": "eh_local_status_api_eh_status_get",
+        "parameters": [
+          {
+            "name": "gids",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Gids"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Eh Local Status Api Eh Status Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/galleries/{gid}/{token}/pages/{n}/image": {
+      "get": {
+        "summary": "Eh Online Page Image",
+        "description": "Serve one reader page through the server, with a private disk cache.",
+        "operationId": "eh_online_page_image_api_eh_galleries__gid___token__pages__n__image_get",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "N"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/galleries/{gid}/{token}/progress": {
+      "get": {
+        "summary": "Eh Online Progress",
+        "operationId": "eh_online_progress_api_eh_galleries__gid___token__progress_get",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Eh Online Progress Api Eh Galleries  Gid   Token  Progress Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Save Eh Online Progress",
+        "operationId": "save_eh_online_progress_api_eh_galleries__gid___token__progress_put",
+        "parameters": [
+          {
+            "name": "gid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Gid"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnlineProgressRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Save Eh Online Progress Api Eh Galleries  Gid   Token  Progress Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/eh/history": {
+      "get": {
+        "summary": "Eh Online History",
+        "description": "Recently read online galleries, newest ``updated_at`` first.",
+        "operationId": "eh_online_history_api_eh_history_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Eh Online History Api Eh History Get"
                 }
               }
             }
@@ -4943,45 +5690,6 @@
             }
           }
         }
-      },
-      "get": {
-        "summary": "Get Local List",
-        "operationId": "get_local_list_api_lists__list_id__get",
-        "parameters": [
-          {
-            "name": "list_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "List Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Local List Api Lists  List Id  Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/api/lists/{list_id}/items": {
@@ -5177,6 +5885,24 @@
               "default": 0,
               "title": "Show All"
             }
+          },
+          {
+            "name": "tags_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 64,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags Limit"
+            }
           }
         ],
         "responses": {
@@ -5244,45 +5970,6 @@
       }
     },
     "/api/series/{series_id}": {
-      "get": {
-        "summary": "Get Series",
-        "operationId": "get_series_api_series__series_id__get",
-        "parameters": [
-          {
-            "name": "series_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Series Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Series Api Series  Series Id  Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
       "patch": {
         "summary": "Rename Series",
         "operationId": "rename_series_api_series__series_id__patch",
@@ -5706,6 +6393,19 @@
         "type": "object",
         "title": "ArchivePreviewRequest"
       },
+      "ArchiveRestoreRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Ids"
+          }
+        },
+        "type": "object",
+        "title": "ArchiveRestoreRequest"
+      },
       "BulkDeleteRequest": {
         "properties": {
           "ids": {
@@ -5996,47 +6696,6 @@
         },
         "type": "object",
         "title": "ExpungedRedownloadRequest"
-      },
-      "FavoriteCategoryRequest": {
-        "properties": {
-          "favcat": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 9.0,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Favcat"
-          },
-          "enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Enabled"
-          },
-          "mode": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mode"
-          }
-        },
-        "type": "object",
-        "title": "FavoriteCategoryRequest"
       },
       "FavoriteNoteRequest": {
         "properties": {
@@ -6354,6 +7013,17 @@
             ],
             "title": "Storage Type"
           },
+          "storage_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Tier"
+          },
           "min_posted_at": {
             "anyOf": [
               {
@@ -6492,6 +7162,600 @@
         "type": "object",
         "title": "FilteredDeleteRequest"
       },
+      "GalleryDetail": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "title_english": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title English"
+          },
+          "title_jpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title Jpn"
+          },
+          "storage_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Type"
+          },
+          "storage_tier": {
+            "type": "string",
+            "title": "Storage Tier",
+            "default": "hot"
+          },
+          "cold_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cold At"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": "other"
+          },
+          "page_count": {
+            "type": "integer",
+            "title": "Page Count",
+            "default": 0
+          },
+          "file_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Size"
+          },
+          "storage_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Size"
+          },
+          "uploader": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploader"
+          },
+          "posted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posted At"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "favorite": {
+            "type": "boolean",
+            "title": "Favorite",
+            "default": false
+          },
+          "favorite_category": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Favorite Category"
+          },
+          "reading_progress": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading Progress"
+          },
+          "expunged": {
+            "type": "boolean",
+            "title": "Expunged",
+            "default": false
+          },
+          "image_quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Quality"
+          },
+          "local_rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Rating"
+          },
+          "local_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Note"
+          },
+          "storage_path": {
+            "type": "string",
+            "title": "Storage Path",
+            "default": ""
+          },
+          "eh_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eh Url"
+          },
+          "exhentai_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exhentai Url"
+          },
+          "warnings": {
+            "items": {},
+            "type": "array",
+            "title": "Warnings"
+          },
+          "spider_info": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Spider Info"
+          },
+          "source_meta": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Source Meta"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTag"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "tags_synced_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags Synced At"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryPageItem"
+            },
+            "type": "array",
+            "title": "Pages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "GalleryDetail",
+        "description": "Full gallery payload of ``GET /api/galleries/{identifier}``.\n\nDeclared standalone rather than as a ``GallerySummary`` subclass: the\ndetail payload intentionally has no ``cover_url`` / ``tag_count``, and\ninheriting them would re-add those keys to the response."
+      },
+      "GalleryExpungedItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "page_count": {
+            "type": "integer",
+            "title": "Page Count",
+            "default": 0
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "storage_path": {
+            "type": "string",
+            "title": "Storage Path",
+            "default": ""
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTag"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "tag_count": {
+            "type": "integer",
+            "title": "Tag Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "GalleryExpungedItem",
+        "description": "Row of ``GET /api/galleries/expunged``."
+      },
+      "GalleryExpungedResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 24
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryExpungedItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "GalleryExpungedResponse"
+      },
+      "GalleryIntegrityItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "page_count": {
+            "type": "integer",
+            "title": "Page Count",
+            "default": 0
+          },
+          "actual_pages": {
+            "type": "integer",
+            "title": "Actual Pages",
+            "default": 0
+          },
+          "file_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Count"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "storage_path": {
+            "type": "string",
+            "title": "Storage Path",
+            "default": ""
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTag"
+            },
+            "type": "array",
+            "title": "Tags"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "GalleryIntegrityItem",
+        "description": "Row of ``GET /api/galleries/integrity``."
+      },
+      "GalleryIntegrityResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 24
+          },
+          "magic_scan": {
+            "$ref": "#/components/schemas/MagicScanSummary"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryIntegrityItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "GalleryIntegrityResponse"
+      },
+      "GalleryListResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 24
+          },
+          "q": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "tags": {
+            "type": "string",
+            "title": "Tags",
+            "default": ""
+          },
+          "resolved": {
+            "type": "boolean",
+            "title": "Resolved",
+            "default": false
+          },
+          "tag_mode": {
+            "type": "string",
+            "title": "Tag Mode",
+            "default": "or"
+          },
+          "tag_match": {
+            "type": "string",
+            "title": "Tag Match",
+            "default": "exact"
+          },
+          "order_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order By"
+          },
+          "read_status": {
+            "type": "string",
+            "title": "Read Status",
+            "default": "all"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": ""
+          },
+          "query_tags": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTag"
+            },
+            "type": "array",
+            "title": "Query Tags"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GallerySummary"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "GalleryListResponse",
+        "description": "Envelope of ``GET /api/galleries``."
+      },
       "GalleryLocalRequest": {
         "properties": {
           "local_rating": {
@@ -6533,6 +7797,661 @@
         },
         "type": "object",
         "title": "GalleryLocalRequest"
+      },
+      "GalleryPageItem": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "page_index": {
+            "type": "integer",
+            "title": "Page Index"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "member_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Name"
+          },
+          "media_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Type"
+          },
+          "image_url": {
+            "type": "string",
+            "title": "Image Url"
+          },
+          "thumb_url": {
+            "type": "string",
+            "title": "Thumb Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "page_index",
+          "image_url",
+          "thumb_url"
+        ],
+        "title": "GalleryPageItem",
+        "description": "One page of a gallery detail response."
+      },
+      "GallerySummary": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "title_english": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title English"
+          },
+          "title_jpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title Jpn"
+          },
+          "storage_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Type"
+          },
+          "storage_tier": {
+            "type": "string",
+            "title": "Storage Tier",
+            "default": "hot"
+          },
+          "cold_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cold At"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": "other"
+          },
+          "page_count": {
+            "type": "integer",
+            "title": "Page Count",
+            "default": 0
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTag"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "tag_count": {
+            "type": "integer",
+            "title": "Tag Count",
+            "default": 0
+          },
+          "uploader": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploader"
+          },
+          "posted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posted At"
+          },
+          "file_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Size"
+          },
+          "storage_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Size"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "favorite": {
+            "type": "boolean",
+            "title": "Favorite",
+            "default": false
+          },
+          "favorite_category": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Favorite Category"
+          },
+          "reading_progress": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading Progress"
+          },
+          "expunged": {
+            "type": "boolean",
+            "title": "Expunged",
+            "default": false
+          },
+          "image_quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Quality"
+          },
+          "local_rating": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Rating"
+          },
+          "local_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "GallerySummary",
+        "description": "Gallery row as returned by ``GET /api/galleries``."
+      },
+      "GalleryTag": {
+        "properties": {
+          "namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namespace"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "display": {
+            "type": "string",
+            "title": "Display"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "display"
+        ],
+        "title": "GalleryTag",
+        "description": "Tag preview attached to a gallery row or a resolved query."
+      },
+      "GalleryTrashItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "title_jpn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title Jpn"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "default": "other"
+          },
+          "page_count": {
+            "type": "integer",
+            "title": "Page Count",
+            "default": 0
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "trashed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trashed At"
+          },
+          "storage_path": {
+            "type": "string",
+            "title": "Storage Path",
+            "default": ""
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTag"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "tag_count": {
+            "type": "integer",
+            "title": "Tag Count",
+            "default": 0
+          },
+          "reading_progress": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading Progress"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "GalleryTrashItem",
+        "description": "Row of ``GET /api/galleries/trash``."
+      },
+      "GalleryTrashResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 24
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryTrashItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "GalleryTrashResponse"
+      },
+      "GalleryUpdateItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gallery_id": {
+            "type": "integer",
+            "title": "Gallery Id"
+          },
+          "old_gid": {
+            "type": "integer",
+            "title": "Old Gid"
+          },
+          "new_gid": {
+            "type": "integer",
+            "title": "New Gid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "favcat": {
+            "type": "integer",
+            "title": "Favcat"
+          },
+          "favcat_name": {
+            "type": "string",
+            "title": "Favcat Name",
+            "default": ""
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "detected_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "match_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Source"
+          },
+          "new_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Title"
+          },
+          "old_page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Page Count"
+          },
+          "new_page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Page Count"
+          },
+          "ambiguous": {
+            "type": "boolean",
+            "title": "Ambiguous",
+            "default": false
+          },
+          "ambiguous_count": {
+            "type": "integer",
+            "title": "Ambiguous Count",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "gallery_id",
+          "old_gid",
+          "new_gid",
+          "title",
+          "favcat",
+          "status"
+        ],
+        "title": "GalleryUpdateItem",
+        "description": "Row of ``GET /api/updates`` (also ``/api/updates/ignored``)."
+      },
+      "GalleryUpdatesListResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size",
+            "default": 24
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "default": "active"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryUpdateItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "GalleryUpdatesListResponse"
       },
       "HTTPValidationError": {
         "properties": {
@@ -6606,6 +8525,104 @@
           "level"
         ],
         "title": "LogLevelRequest"
+      },
+      "MagicScanSummary": {
+        "properties": {
+          "running": {
+            "type": "boolean",
+            "title": "Running",
+            "default": false
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "scanned": {
+            "type": "integer",
+            "title": "Scanned",
+            "default": 0
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "corrupt": {
+            "type": "integer",
+            "title": "Corrupt",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "MagicScanSummary",
+        "description": "Last integrity magic-byte scan counters."
+      },
+      "OnlineProgressRequest": {
+        "properties": {
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "total_pages": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Pages"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "thumb": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumb"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page"
+        ],
+        "title": "OnlineProgressRequest",
+        "description": "``PUT`` body: 1-based ``page`` plus optional display metadata."
       },
       "ProgressRequest": {
         "properties": {
@@ -7099,6 +9116,17 @@
             ],
             "title": "Favorites Poll Interval Minutes"
           },
+          "favorites_cloud_open": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Favorites Cloud Open"
+          },
           "favorites": {
             "anyOf": [
               {
@@ -7313,6 +9341,31 @@
               }
             ],
             "title": "Global Paused"
+          },
+          "online_reader_concurrency": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 16.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Online Reader Concurrency"
+          },
+          "online_cache_max_mb": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 16.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Online Cache Max Mb"
           }
         },
         "type": "object",
@@ -7342,6 +9395,11 @@
               }
             ],
             "title": "Quality"
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "default": false
           }
         },
         "type": "object",
@@ -7386,6 +9444,213 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "_DownloadListResponseOut": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/_DownloadTaskItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "page",
+          "page_size",
+          "items"
+        ],
+        "title": "_DownloadListResponseOut"
+      },
+      "_DownloadTaskItemOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "gid": {
+            "type": "integer",
+            "title": "Gid"
+          },
+          "gallery_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gallery Id"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "retry_count": {
+            "type": "integer",
+            "title": "Retry Count",
+            "default": 0
+          },
+          "max_retries": {
+            "type": "integer",
+            "title": "Max Retries",
+            "default": 10
+          },
+          "current_page": {
+            "type": "integer",
+            "title": "Current Page",
+            "default": 0
+          },
+          "total_pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Pages"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality"
+          },
+          "archive_fallback": {
+            "type": "boolean",
+            "title": "Archive Fallback",
+            "default": false
+          },
+          "archive_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archive Status"
+          },
+          "archive_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archive Error"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed"
+          },
+          "eta_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eta Seconds"
+          },
+          "ingest_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingest Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "gid",
+          "status"
+        ],
+        "title": "_DownloadTaskItemOut",
+        "description": "B2/T2.1: expose the ingest phase until T2.3 updates the shared schema."
       }
     }
   }

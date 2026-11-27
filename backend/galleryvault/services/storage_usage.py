@@ -51,8 +51,32 @@ def safe_stat_size(path: Path | str) -> int:
     return 0
 
 
+# ``du`` prints a single size line; cap the consumed output so a future flag
+# change (or a pathological path name containing newlines) cannot buffer
+# unbounded data into memory.
+_DU_OUTPUT_CAP = 64 * 1024
+
+
+async def _read_capped(stream: asyncio.StreamReader, cap: int) -> tuple[bytes, bool]:
+    """Read at most ``cap`` bytes from ``stream``; return ``(data, truncated)``."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await stream.read(8192)
+        if not chunk:
+            return b"".join(chunks), False
+        chunks.append(chunk)
+        total += len(chunk)
+        if total >= cap:
+            return b"".join(chunks), True
+
+
 async def measure_dir_bytes(path: Path) -> int:
-    """Measure directory size via du -sb if available, falling back to controlled walk."""
+    """Measure directory size via ``du -sbx`` if available, else a bounded walk.
+
+    ``-x`` keeps the measurement on the starting filesystem so a nested cold
+    archive mount under the library root is not double counted.
+    """
     if not path.exists():
         return 0
     if path.is_file():
@@ -67,14 +91,24 @@ async def measure_dir_bytes(path: Path) -> int:
         try:
             proc = await asyncio.create_subprocess_exec(
                 du_bin,
-                "-sb",
+                "-sbx",
                 str(path),
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
             )
-            stdout, _ = await proc.communicate()
+            stdout, truncated = await _read_capped(proc.stdout, _DU_OUTPUT_CAP)
+            if truncated:
+                logger.debug("du -sbx output exceeded cap; falling back to controlled walk")
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+                await proc.wait()
+                stdout = b""
+            else:
+                await proc.wait()
             if proc.returncode == 0 and stdout:
-                parts = stdout.decode().strip().split()
+                parts = stdout.decode(errors="replace").strip().split()
                 if parts and parts[0].isdigit():
                     return int(parts[0])
         except asyncio.CancelledError:
@@ -93,13 +127,20 @@ async def measure_dir_bytes(path: Path) -> int:
     # Fallback to controlled walk run in a thread
     def _walk() -> int:
         total = 0
+        seen_inodes: set[tuple[int, int]] = set()
         try:
             for root, _dirs, files in os.walk(path, followlinks=False):
                 for f in files:
                     try:
-                        total += (Path(root) / f).stat().st_size
+                        st = (Path(root) / f).stat()
                     except OSError:
                         continue
+                    # Hard links share an inode; ``du`` counts them once.
+                    key = (st.st_dev, st.st_ino)
+                    if key in seen_inodes:
+                        continue
+                    seen_inodes.add(key)
+                    total += st.st_size
         except OSError:
             pass
         return total
@@ -234,3 +275,168 @@ class StorageUsageTracker:
 
 
 storage_tracker = StorageUsageTracker()
+
+
+def _path_info(
+    path: object,
+    bytes_value: int | None = None,
+    computed_at: float | None = None,
+    stale: bool = False,
+    computing: bool = False,
+) -> dict[str, object]:
+    import shutil
+
+    root = Path(str(path)) if path else Path()
+    exists = bool(path) and root.exists()
+    info: dict[str, object] = {
+        "path": str(root) if path else "",
+        "bytes": bytes_value,
+        "exists": exists,
+        "computed_at": computed_at,
+        "stale": stale,
+        "computing": computing,
+    }
+    if exists:
+        try:
+            usage = shutil.disk_usage(root)
+            info["disk_total"] = int(usage.total)
+            info["disk_used"] = int(usage.used)
+            info["disk_free"] = int(usage.free)
+        except OSError:
+            pass
+    return info
+
+
+async def _query_storage_aggregates(
+    session: object,
+) -> tuple[int, int, int, int, int]:
+    from sqlalchemy import func, select
+
+    from ..db.models import Gallery
+
+    cold_galleries = 0
+    cold_images = 0
+    cold_bytes = 0
+    library_galleries = 0
+    library_images = 0
+
+    size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
+    # Cold rows are counted by their explicit tier (not a path prefix), so
+    # multiple ``archive_roots`` and still-trash-listed cold items (which keep
+    # consuming cold space) are all represented.  Hot rows keep the historic
+    # expunged/trashed exclusion.
+    cold_stmt = select(
+        func.count(Gallery.id),
+        func.coalesce(func.sum(Gallery.page_count), 0),
+        func.coalesce(func.sum(size_col), 0),
+    ).where(Gallery.storage_tier == "cold")
+    cold_row = (await session.execute(cold_stmt)).first()  # type: ignore[attr-defined]
+    if cold_row:
+        cold_galleries = int(cold_row[0] or 0)
+        cold_images = int(cold_row[1] or 0)
+        cold_bytes = int(cold_row[2] or 0)
+
+    lib_stmt = select(
+        func.count(Gallery.id),
+        func.coalesce(func.sum(Gallery.page_count), 0),
+    ).where(
+        Gallery.expunged.is_(False),
+        Gallery.trashed.is_(False),
+        Gallery.storage_tier != "cold",
+    )
+    lib_row = (await session.execute(lib_stmt)).first()  # type: ignore[attr-defined]
+    if lib_row:
+        library_galleries = int(lib_row[0] or 0)
+        library_images = int(lib_row[1] or 0)
+
+    return cold_galleries, cold_images, cold_bytes, library_galleries, library_images
+
+
+async def system_storage(session: object | None = None) -> dict[str, object]:
+    """Storage dashboard use case shared by the settings router and the bot."""
+    from ..app.dependencies import display_title, get_current_settings
+    from ..db.repository import GalleryRepository
+
+    settings = get_current_settings()
+    cache_root = Path(settings.thumbnail_cache_dir).parent
+    cold_root = (getattr(settings, "cold_storage_root", None) or "").strip()
+    library_bytes = 0
+    cold_bytes = 0
+    library_galleries = 0
+    library_images = 0
+    cold_galleries = 0
+    cold_images = 0
+    largest: list[dict[str, object]] = []
+
+    try:
+        repo = GalleryRepository(session)
+        library_bytes = await repo.library_storage_sum()
+        (
+            cold_galleries,
+            cold_images,
+            cold_bytes,
+            library_galleries,
+            library_images,
+        ) = await _query_storage_aggregates(session)
+
+        rows = await repo.largest_by_storage(10)
+        largest = [
+            {
+                "id": row.id,
+                "title": display_title(row),
+                "storage_size": row.storage_size or row.file_size or 0,
+                "file_count": row.page_count or 0,
+            }
+            for row in rows
+        ]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("storage dashboard db failed", extra={"error": str(exc)})
+
+    # Ensure background calibration is initiated if not already running and no snapshot exists
+    lib_path = (settings.library_roots or [None])[0]
+    dl_snap = storage_tracker.get_downloads_snapshot()
+    c_snap = storage_tracker.get_cache_snapshot()
+    l_snap = storage_tracker.get_library_snapshot()
+    if dl_snap.bytes is None or c_snap.bytes is None or (lib_path and l_snap.bytes is None):
+        storage_tracker.trigger_calibration(
+            settings.download_root, cache_root, library_root=lib_path
+        )
+
+    downloads = _path_info(
+        settings.download_root,
+        bytes_value=dl_snap.bytes,
+        computed_at=dl_snap.computed_at,
+        stale=dl_snap.stale,
+        computing=dl_snap.computing,
+    )
+    cache = _path_info(
+        str(cache_root),
+        bytes_value=c_snap.bytes,
+        computed_at=c_snap.computed_at,
+        stale=c_snap.stale,
+        computing=c_snap.computing,
+    )
+    lib_val = (
+        l_snap.bytes if l_snap.bytes is not None else (None if l_snap.computing else library_bytes)
+    )
+    library = _path_info(
+        lib_path,
+        bytes_value=lib_val,
+        computed_at=l_snap.computed_at,
+        stale=l_snap.stale,
+        computing=l_snap.computing,
+    )
+    cold = _path_info(cold_root, bytes_value=cold_bytes)
+    cache_thumbs = library_images + cold_images
+    library["gallery_count"] = library_galleries
+    library["image_count"] = library_images
+    cold["gallery_count"] = cold_galleries
+    cold["image_count"] = cold_images
+    cache["thumbnail_count"] = cache_thumbs
+    return {
+        "library": library,
+        "cold": cold,
+        "downloads": downloads,
+        "cache": cache,
+        "largest": largest,
+    }

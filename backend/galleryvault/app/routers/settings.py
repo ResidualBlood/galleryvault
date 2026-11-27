@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy import func, not_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...auth import client_ip, verify_login_password
 from ...config import normalize_library_roots
-from ...db.models import FavoritesMonitor, Gallery
+from ...db.models import FavoritesMonitor
+from ...db.repositories.settings import patch_settings
 from ...db.repository import FavoritesRepository, GalleryRepository, SettingsRepository
 from ...db.session import safe_transaction
 from ...logging import (
@@ -24,6 +24,7 @@ from ...logging import (
     get_log_level,
     get_log_root,
     get_recent_logs,
+    log_extra,
     mask_sensitive,
     set_log_level,
 )
@@ -40,7 +41,6 @@ from ..core.task_dispatcher import TaskDispatcher
 from ..core.uow import UnitOfWork
 from ..dependencies import (
     db_error,
-    display_title,
     get_current_settings,
     get_eh_client,
     get_session,
@@ -50,15 +50,92 @@ from ..dependencies import (
     resolve_session,
     spawn_task,
 )
-from ..schemas import LogLevelRequest, SavedSearchRequest, SettingsRequest
+from ..schemas import LogLevelRequest, SettingsRequest
 from ..state import app_state
+from . import saved_searches
+from .saved_searches import (
+    saved_searches_add,
+    saved_searches_delete,
+    saved_searches_list,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-__all__ = ["router", "spawn_task"]
+__all__ = [
+    "router",
+    "saved_searches_add",
+    "saved_searches_delete",
+    "saved_searches_list",
+    "spawn_task",
+]
 
-_SAVED_SEARCH_MAX = 30
+# Settings that decide who may reach the app at all, where files are read from,
+# or which proxies are trusted to supply the client IP.  A single ordinary
+# settings POST must not be able to change them silently (e.g. an XSS/stolen
+# session moving the library boundary), so a change requires a fresh password or
+# an explicit confirmation flag.
+_SECURITY_SENSITIVE_KEYS = ("auth_required", "trusted_proxies", "download_root", "library_roots")
+
+
+def _comparable_setting(key: str, value: object) -> object:
+    if key == "library_roots":
+        return tuple(normalize_library_roots(value))
+    if key == "trusted_proxies":
+        entries = value if isinstance(value, list) else [value]
+        return tuple(sorted(str(entry).strip() for entry in entries if str(entry).strip()))
+    if key == "download_root":
+        return str(value or "").strip()
+    return value
+
+
+def _changed_security_keys(values: dict[str, Any], current: Any) -> list[str]:
+    """Return the security-sensitive keys this request would actually change."""
+    changed: list[str] = []
+    for key in _SECURITY_SENSITIVE_KEYS:
+        if key not in values:
+            continue
+        old = getattr(current, key, None)
+        if _comparable_setting(key, values[key]) != _comparable_setting(key, old):
+            changed.append(key)
+    return changed
+
+
+def _confirmation_method(current_password: str, confirm_flag: bool, settings: Any) -> str | None:
+    """Return how the caller confirmed a sensitive change, or None."""
+    if confirm_flag:
+        return "confirm_flag"
+    if current_password:
+        effective = getattr(settings, "auth_password_hash", None) or getattr(
+            settings, "auth_password", None
+        )
+        if effective and verify_login_password(current_password, effective):
+            return "password"
+    return None
+
+
+async def _read_confirmation(request: Request | None) -> tuple[bool, str]:
+    """Read the confirmation flag / password sent with a settings save.
+
+    The flag can travel either as the ``X-Confirm-Security-Change`` header or as
+    ``confirm_security_change`` in the JSON body (unknown fields would be
+    dropped by the pydantic schema).
+    """
+    if request is None:
+        return False, ""
+    header = request.headers.get("x-confirm-security-change", "")
+    confirm = header.strip().lower() in {"1", "true", "yes", "on"}
+    password = ""
+    if confirm:
+        return True, ""
+    try:
+        raw = await request.json()
+    except Exception:  # noqa: BLE001
+        return False, ""
+    if isinstance(raw, dict):
+        confirm = raw.get("confirm_security_change") is True
+        password = str(raw.get("current_password") or "")
+    return confirm, password
 
 
 def get_settings_service(
@@ -82,20 +159,37 @@ async def settings_get(
     try:
         persisted = await service.get_persisted_settings()
         update_runtime_settings(persisted)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("settings could not be re-read", extra={"error": str(exc)})
+    except SQLAlchemyError as exc:
+        # A failed re-read must not look like a successful load: the in-memory
+        # values may be stale, so fail loudly with a generic message.
+        raise db_error(exc) from exc
+    except Exception as exc:
+        logger.error(
+            "settings could not be re-read",
+            extra=log_extra(error=type(exc).__name__),
+        )
+        raise HTTPException(status_code=500, detail="settings could not be loaded") from exc
     return service.get_public_settings()
 
 
 @router.post("/api/settings")
 async def settings_save(
     body: SettingsRequest,
+    request: Request = None,  # type: ignore[assignment]
     session: AsyncSession = Depends(get_session),  # noqa: B008
     dispatcher: TaskDispatcher = Depends(get_task_dispatcher),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
     disp = _resolve_dispatcher(dispatcher)
-    return await _save_settings(body, session=session, dispatcher=disp)
+    confirm_flag, current_password = await _read_confirmation(request)
+    return await _save_settings(
+        body,
+        session=session,
+        dispatcher=disp,
+        confirm_flag=confirm_flag,
+        current_password=current_password,
+        request=request,
+    )
 
 
 @router.get("/api/settings/cookie-health")
@@ -160,18 +254,62 @@ async def settings_test_exhentai() -> JSONResponse:
     )
 
 
+def _validate_choice_values(values: dict[str, Any]) -> None:
+    """Reject enum/quality values the runtime Settings model would refuse.
+
+    The API schema lives in ``app/schemas.py``; validating here keeps a POST
+    from persisting values that ``config.Settings`` rejects (which would then
+    silently drive downstream ``!= "original"`` branches).
+    """
+    quality_keys = ("download_quality", "archive_quality")
+    for key in quality_keys:
+        value = values.get(key)
+        if value is not None and value not in {"original", "resample"}:
+            raise HTTPException(status_code=422, detail=f"{key} must be 'original' or 'resample'")
+    if values.get("download_title") not in (None, "japanese", "english"):
+        raise HTTPException(
+            status_code=422, detail="download_title must be 'japanese' or 'english'"
+        )
+    if values.get("title_display") not in (None, "japanese", "english", "directory"):
+        raise HTTPException(
+            status_code=422,
+            detail="title_display must be 'japanese', 'english', or 'directory'",
+        )
+    if values.get("favorites_cloud_open") not in (None, "app", "external"):
+        raise HTTPException(
+            status_code=422,
+            detail="favorites_cloud_open must be 'app' or 'external'",
+        )
+    interval = values.get("tag_translation_update_interval_minutes")
+    if interval is not None and int(interval) < 0:
+        raise HTTPException(
+            status_code=422, detail="tag_translation_update_interval_minutes must be >= 0"
+        )
+
+
 async def _save_settings(
     body: SettingsRequest,
     session: AsyncSession | None = None,
     dispatcher: TaskDispatcher | None = None,
+    confirm_flag: bool = False,
+    current_password: str = "",
+    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, object]:
     if session is None:
         if not app_state.session_factory:
             raise HTTPException(status_code=503, detail="Database session factory not initialized")
         async with app_state.session_factory() as s:
-            return await _save_settings(body, session=s, dispatcher=dispatcher)
+            return await _save_settings(
+                body,
+                session=s,
+                dispatcher=dispatcher,
+                confirm_flag=confirm_flag,
+                current_password=current_password,
+                request=request,
+            )
 
     values = body.model_dump(exclude_none=True)
+    _validate_choice_values(values)
     if "cold_storage_root" in values and isinstance(values["cold_storage_root"], str):
         values["cold_storage_root"] = values["cold_storage_root"].strip()
     if "telegram_bot_token" in values and not str(values["telegram_bot_token"]).strip():
@@ -224,16 +362,56 @@ async def _save_settings(
     current_settings = get_current_settings()
     if cookie_fields:
         values["exhentai_cookies"] = {**current_settings.exhentai_cookies, **cookie_fields}
-    update_runtime_settings(values)
 
-    db_settings = {}
+    # Security-sensitive keys need an explicit confirmation: either the current
+    # admin password or a deliberate ``confirm_security_change`` flag.  Nothing
+    # is written when confirmation is missing (fail closed).
+    changed_security_keys = _changed_security_keys(values, current_settings)
+    confirm_method = None
+    if changed_security_keys:
+        confirm_method = _confirmation_method(
+            current_password, confirm_flag, current_settings
+        )
+        if confirm_method is None:
+            logger.warning(
+                "settings save blocked: security-sensitive change without confirmation",
+                extra=log_extra(
+                    keys=changed_security_keys,
+                    ip=client_ip(request) if request is not None else "unknown",
+                ),
+            )
+            raise HTTPException(
+                status_code=428,
+                detail={
+                    "message": "security-sensitive settings require confirmation",
+                    "keys": changed_security_keys,
+                    "confirmation": "send current_password, confirm_security_change=true, "
+                    "or the X-Confirm-Security-Change: true header",
+                },
+            )
+
+    # Read the persisted document for two reasons: a broken read must fail the
+    # request (never apply runtime state from an unsaved write), and the base
+    # URL comparison below needs the previous value.  The write itself is a
+    # partial merge, so keys absent from this request survive untouched.
+    repo = SettingsRepository(session)
     try:
-        db_settings = await SettingsRepository(session).get()
-    except Exception:  # noqa: BLE001
-        db_settings = {}
+        db_settings = await repo.get()
+    except Exception as exc:
+        logger.error(
+            "settings save aborted: could not read current settings",
+            extra=log_extra(error=type(exc).__name__),
+        )
+        raise db_error(exc) from exc
 
-    persisted_values = {**db_settings, **values}
-    cookies = persisted_values.get("exhentai_cookies")
+    # The running app needs the plaintext values; only the persisted copy is
+    # encrypted.  Feeding ciphertext to the runtime would wipe the cookies (and
+    # corrupt the bot token) until the next restart.
+    runtime_values = dict(values)
+
+    # Encrypt only the values this request actually carries.  Persisted
+    # ciphertext is never decrypted/re-encrypted just because it exists.
+    cookies = values.get("exhentai_cookies")
     if isinstance(cookies, (dict, list)) and cookies:
         if not encryption_enabled():
             logger.warning(
@@ -243,14 +421,14 @@ async def _save_settings(
                 status_code=422,
                 detail="encryption not enabled; cannot store ExHentai cookies without encryption",
             )
-        persisted_values["exhentai_cookies"] = encrypt_json(cookies)
-    token = persisted_values.get("telegram_bot_token")
+        values["exhentai_cookies"] = encrypt_json(cookies)
+    token = values.get("telegram_bot_token")
     if isinstance(token, str) and token and not is_encrypted(token):
-        persisted_values["telegram_bot_token"] = encrypt(token)
+        values["telegram_bot_token"] = encrypt(token)
 
     try:
         async with safe_transaction(session):
-            await SettingsRepository(session).save(persisted_values)
+            await patch_settings(repo, values)
             for item in favorites:
                 favcat = _favcat(item)
                 row = await FavoritesRepository(session).category(favcat)
@@ -265,8 +443,24 @@ async def _save_settings(
     except Exception as exc:
         raise db_error(exc) from exc
 
+    if changed_security_keys:
+        # Audit trail for account/security boundary changes.  Values are not
+        # logged (they may contain internal paths), only which keys moved.
+        logger.warning(
+            "security-sensitive settings changed",
+            extra=log_extra(
+                keys=changed_security_keys,
+                confirmed=confirm_method,
+                ip=client_ip(request) if request is not None else "unknown",
+            ),
+        )
+
+    # Runtime (in-memory) settings only change once the database write succeeded,
+    # so a failed save cannot make the running app diverge from disk state.
+    update_runtime_settings(runtime_values)
+
     old_base = str(db_settings.get("exhentai_base_url") or "")
-    new_base = str(persisted_values.get("exhentai_base_url") or "")
+    new_base = str(values.get("exhentai_base_url") or old_base)
     if is_public_site(old_base) and not is_public_site(new_base):
         try:
             async with safe_transaction(session):
@@ -284,6 +478,28 @@ async def _save_settings(
     return settings_public()
 
 
+def _sanitize_log_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mask credentials in every field the logs API echoes back.
+
+    ``message``/``context`` are already masked when the record is buffered, but
+    ``exception`` (formatted traceback) is stored raw and can contain cookies,
+    proxy URLs or bot tokens.  Mask defensively here so the HTTP response never
+    leaks them.
+    """
+    sanitized: list[dict[str, Any]] = []
+    for entry in entries:
+        item = dict(entry)
+        item["message"] = mask_sensitive(str(item.get("message", "")))
+        context = item.get("context")
+        if isinstance(context, dict):
+            item["context"] = mask_sensitive(context)
+        exception = item.get("exception")
+        if exception:
+            item["exception"] = mask_sensitive(str(exception))
+        sanitized.append(item)
+    return sanitized
+
+
 @router.get("/api/system/logs")
 def system_logs_get(
     min_level: str = "INFO", limit: int = 100, search: str | None = None
@@ -292,11 +508,12 @@ def system_logs_get(
     capped_limit = max(1, min(limit, 500))
     log_path = get_log_file_path()
     file_exists = bool(log_path and log_path.exists() and log_path.is_file())
+    entries = get_recent_logs(min_level=min_level, limit=capped_limit, search=search)
     return {
         "level": get_log_level(),
         "log_mode": "file" if file_exists else "memory",
         "log_file": str(log_path) if file_exists else None,
-        "logs": get_recent_logs(min_level=min_level, limit=capped_limit, search=search),
+        "logs": _sanitize_log_entries(entries),
     }
 
 
@@ -376,278 +593,19 @@ def system_logs_download() -> Response:
     )
 
 
-async def _user_settings(session: AsyncSession | None = None) -> dict:
-    if session is not None:
-        return await SettingsRepository(session).get()
-    if app_state.session_factory:
-        async with app_state.session_factory() as s:
-            return await SettingsRepository(s).get()
-    return {}
-
-
-async def _merge_user_settings(updates: dict, session: AsyncSession | None = None) -> dict:
-    if session is not None:
-        async with safe_transaction(session):
-            repo = SettingsRepository(session)
-            existing = await repo.get()
-            merged = {**existing, **updates}
-            await repo.save(merged)
-            return merged
-    if app_state.session_factory:
-        async with app_state.session_factory() as s, safe_transaction(s):
-            repo = SettingsRepository(s)
-            existing = await repo.get()
-            merged = {**existing, **updates}
-            await repo.save(merged)
-            return merged
-    return updates
-
-
-def _normalize_saved_searches(raw: object) -> list[dict]:
-    if not isinstance(raw, list):
-        return []
-    out: list[dict] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        query = item.get("query") if isinstance(item.get("query"), dict) else {}
-        ident = str(item.get("id") or "").strip()
-        if not name:
-            continue
-        out.append({"id": ident, "name": name, "query": query})
-    return out[:_SAVED_SEARCH_MAX]
-
-
-@router.get("/api/saved-searches")
-async def saved_searches_list(
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    try:
-        stored = await _user_settings(session=session)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("saved searches read failed", extra={"error": str(exc)})
-        stored = {}
-    items = _normalize_saved_searches(stored.get("saved_searches"))
-    return {"items": items}
-
-
-@router.post("/api/saved-searches")
-async def saved_searches_add(
-    body: SavedSearchRequest,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    name = body.name.strip()
-    if not name:
-        raise HTTPException(status_code=422, detail="name is required")
-    try:
-        stored = await _user_settings(session=session)
-        items = _normalize_saved_searches(stored.get("saved_searches"))
-        if len(items) >= _SAVED_SEARCH_MAX:
-            raise HTTPException(status_code=409, detail="saved search limit reached")
-        entry = {"id": uuid.uuid4().hex, "name": name, "query": body.query or {}}
-        items.append(entry)
-        await _merge_user_settings({"saved_searches": items}, session=session)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise db_error(exc) from exc
-    return entry
-
-
-@router.delete("/api/saved-searches/{search_id}")
-async def saved_searches_delete(
-    search_id: str,
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    session = await resolve_session(session, fallback_dep=get_session)
-    try:
-        stored = await _user_settings(session=session)
-        items = _normalize_saved_searches(stored.get("saved_searches"))
-        next_items = [it for it in items if it.get("id") != search_id]
-        if len(next_items) == len(items):
-            raise HTTPException(status_code=404, detail="saved search not found")
-        await _merge_user_settings({"saved_searches": next_items}, session=session)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise db_error(exc) from exc
-    return {"deleted": True, "id": search_id}
-
-
-def _path_info(
-    path: object,
-    bytes_value: int | None = None,
-    computed_at: float | None = None,
-    stale: bool = False,
-    computing: bool = False,
-) -> dict[str, object]:
-    import shutil
-
-    root = Path(str(path)) if path else Path()
-    exists = bool(path) and root.exists()
-    info: dict[str, object] = {
-        "path": str(root) if path else "",
-        "bytes": bytes_value,
-        "exists": exists,
-        "computed_at": computed_at,
-        "stale": stale,
-        "computing": computing,
-    }
-    if exists:
-        try:
-            usage = shutil.disk_usage(root)
-            info["disk_total"] = int(usage.total)
-            info["disk_used"] = int(usage.used)
-            info["disk_free"] = int(usage.free)
-        except OSError:
-            pass
-    return info
-
-
-async def _query_storage_aggregates(
-    session: AsyncSession, cold_root: str
-) -> tuple[int, int, int, int, int]:
-    cold_galleries = 0
-    cold_images = 0
-    cold_bytes = 0
-    library_galleries = 0
-    library_images = 0
-
-    valid_cond = (Gallery.expunged.is_(False), Gallery.trashed.is_(False))
-    if cold_root:
-        size_col = func.coalesce(Gallery.storage_size, Gallery.file_size)
-        cold_stmt = select(
-            func.count(Gallery.id),
-            func.coalesce(func.sum(Gallery.page_count), 0),
-            func.coalesce(func.sum(size_col), 0),
-        ).where(
-            *valid_cond,
-            Gallery.storage_path.startswith(cold_root),
-        )
-        cold_row = (await session.execute(cold_stmt)).first()
-        if cold_row:
-            cold_galleries = int(cold_row[0] or 0)
-            cold_images = int(cold_row[1] or 0)
-            cold_bytes = int(cold_row[2] or 0)
-
-        lib_stmt = select(
-            func.count(Gallery.id),
-            func.coalesce(func.sum(Gallery.page_count), 0),
-        ).where(
-            *valid_cond,
-            Gallery.storage_path.is_(None)
-            | not_(Gallery.storage_path.startswith(cold_root)),
-        )
-        lib_row = (await session.execute(lib_stmt)).first()
-        if lib_row:
-            library_galleries = int(lib_row[0] or 0)
-            library_images = int(lib_row[1] or 0)
-    else:
-        lib_stmt = select(
-            func.count(Gallery.id),
-            func.coalesce(func.sum(Gallery.page_count), 0),
-        ).where(*valid_cond)
-        lib_row = (await session.execute(lib_stmt)).first()
-        if lib_row:
-            library_galleries = int(lib_row[0] or 0)
-            library_images = int(lib_row[1] or 0)
-
-    return cold_galleries, cold_images, cold_bytes, library_galleries, library_images
+# Registered where the handlers used to live so the route table keeps its order.
+router.include_router(saved_searches.router)
 
 
 @router.get("/api/system/storage")
 async def system_storage(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
+    """Thin wrapper over ``services.storage_usage.system_storage``."""
+    from ...services.storage_usage import system_storage as _system_storage
+
     session = await resolve_session(session, fallback_dep=get_session)
-    from ...services.storage_usage import storage_tracker
-
-    settings = get_current_settings()
-    cache_root = Path(settings.thumbnail_cache_dir).parent
-    cold_root = (getattr(settings, "cold_storage_root", None) or "").strip()
-    library_bytes = 0
-    cold_bytes = 0
-    library_galleries = 0
-    library_images = 0
-    cold_galleries = 0
-    cold_images = 0
-    largest: list[dict[str, object]] = []
-
-    try:
-        repo = GalleryRepository(session)
-        library_bytes = await repo.library_storage_sum()
-        (
-            cold_galleries,
-            cold_images,
-            cold_bytes,
-            library_galleries,
-            library_images,
-        ) = await _query_storage_aggregates(session, cold_root)
-
-        rows = await repo.largest_by_storage(10)
-        largest = [
-            {
-                "id": row.id,
-                "title": display_title(row),
-                "storage_size": row.storage_size or row.file_size or 0,
-                "file_count": row.page_count or 0,
-            }
-            for row in rows
-        ]
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("storage dashboard db failed", extra={"error": str(exc)})
-
-    # Ensure background calibration is initiated if not already running and no snapshot exists
-    lib_path = (settings.library_roots or [None])[0]
-    dl_snap = storage_tracker.get_downloads_snapshot()
-    c_snap = storage_tracker.get_cache_snapshot()
-    l_snap = storage_tracker.get_library_snapshot()
-    if dl_snap.bytes is None or c_snap.bytes is None or (lib_path and l_snap.bytes is None):
-        storage_tracker.trigger_calibration(
-            settings.download_root, cache_root, library_root=lib_path
-        )
-
-    downloads = _path_info(
-        settings.download_root,
-        bytes_value=dl_snap.bytes,
-        computed_at=dl_snap.computed_at,
-        stale=dl_snap.stale,
-        computing=dl_snap.computing,
-    )
-    cache = _path_info(
-        str(cache_root),
-        bytes_value=c_snap.bytes,
-        computed_at=c_snap.computed_at,
-        stale=c_snap.stale,
-        computing=c_snap.computing,
-    )
-    lib_val = (
-        l_snap.bytes if l_snap.bytes is not None else (None if l_snap.computing else library_bytes)
-    )
-    library = _path_info(
-        lib_path,
-        bytes_value=lib_val,
-        computed_at=l_snap.computed_at,
-        stale=l_snap.stale,
-        computing=l_snap.computing,
-    )
-    cold = _path_info(cold_root, bytes_value=cold_bytes)
-    cache_thumbs = library_images + cold_images
-    library["gallery_count"] = library_galleries
-    library["image_count"] = library_images
-    cold["gallery_count"] = cold_galleries
-    cold["image_count"] = cold_images
-    cache["thumbnail_count"] = cache_thumbs
-    return {
-        "library": library,
-        "cold": cold,
-        "downloads": downloads,
-        "cache": cache,
-        "largest": largest,
-    }
+    return await _system_storage(session)
 
 
 @router.post("/api/system/purge-archived-sources", status_code=202)

@@ -60,7 +60,7 @@ docker compose up -d
 
 镜像基于多架构 Manifest（`linux/amd64` 与 `linux/arm64`），Docker 会根据宿主硬件自动匹配。
 
-> 首次登录请访问 `http://<主机IP>:8000`，使用默认口令 **`p1a2s3s4`**。登录后进入 `#/welcome` 向导，必须先改密才能进主界面。仓库 compose 默认 `TZ: Asia/Shanghai`（通知时间戳跟容器时区）。
+> 首次登录请访问 `http://<主机IP>:8000`，使用默认口令 **`p1a2s3s4`**。登录后进入 `#/welcome` 向导，必须先改密才能进主界面。仓库 compose 默认 `TZ: Asia/Shanghai`（通知时间戳跟容器时区）。默认口令仅在尚未配置管理员密码时有效，已配置密码后一律无效；OPDS 的 HTTP Basic 认证在未配置密码时同样不接受默认口令。
 
 ---
 
@@ -78,7 +78,7 @@ docker compose up -d
 
 ### 2. 冷热分层存储、多盘挂载与归档规则
 
-如果您在 NAS 上拥有多块存储池或希望将既有下载目录作为**仅扫描不写入**的库，或希望利用多块硬盘作为冷归档池，可按如下方式在 `docker-compose.yml` 中追加数据卷：
+在 NAS 上拥有多块存储池、希望将既有下载目录作为只读扫描库，或利用多块硬盘作为冷归档池时，可在 `docker-compose.yml` 中追加数据卷挂载：
 
 ```yaml
     volumes:
@@ -93,17 +93,16 @@ docker compose up -d
 
 **生效与配置指引**：
 1. **更新数据卷**：编辑 `docker-compose.yml` 中的 `backend.volumes` 并重启容器：`docker compose up -d backend`。
-2. **多库扫描目录**：打开 Web 界面进入「系统设置 → 资料库 → 库根目录」，在多行文本框中填入只读或既有画廊路径（如 `/mnt/pool2`，每行一个）并保存，点击「扫描库」开始增量索引。
+2. **多库扫描目录**：打开 Web 界面进入「系统设置 → 资料库 → 库根目录」，在多行文本框中填入只读或既有画廊路径（如 `/mnt/pool2`，每行一个）并保存（需输入当前管理员密码确认），点击「扫描库」开始增量索引。
 3. **冷存储多根目录 (`archive_roots`) 与容量负载均衡**：
    - 在「系统设置 → 资料库 → 冷归档目录」中填写多个冷存储挂载点（每行一个路径，例如 `/archive1` 与 `/archive2`）。
-    - **动态空间均衡**：冷归档任务通过 `statvfs` 查看各 `archive_roots` 的剩余空间，写入「剩余空间 ≥ 预估体积 × 1.2 且最空」的那块盘。
-4. **英文固定命名规范 (`gid-gallery.title.cbz`)**：
-   - 为确保归档 CBZ 文件在跨平台、跨操作系统（Linux、Windows、macOS）及网络文件共享协议（SMB / NFS / WebDAV / rsync）与远程云备份同步时不发生字符集乱码或非法转义，冷归档统一强制采用官方英文/罗马音标题格式；
-    - 文件名应用严格的 **243 字节上限截断**（预留 12 字节临时后缀缓冲区），彻底规避 Linux ext4 文件系统的 `[Errno 36] File name too long` 错误。
-    - 单卷上限 **500 页且 2GiB**（同时满足才打 CBZ），超限打成冷目录，不是多卷 CBZ。
+   - **动态空间均衡**：冷归档任务通过 `statvfs` 检查各 `archive_roots` 的剩余空间，写入剩余空间 ≥ 预估体积 × 1.2 且空闲空间最多的挂载目录。
+4. **命名规范与单卷规格**：
+   - 归档文件名与目录名规范、UTF-8 字节截断及临时后缀缓冲规则详见 [兼容性与格式规范 → 格式降级与容错处理](Compatibility#格式降级与容错处理)。
+   - 单卷上限为 **500 页且 2GiB**（两项指标均未超出才打包为 CBZ）；超出任一限制时打成冷目录，不打成多卷 CBZ。
 5. **安全反向清理已归档源目录 (`purge-archived-sources`)**：
-   - 当画廊在冷存储目录成功归档为 CBZ 后，可在「设置 → 存储面板」点击「清理已归档源目录」（`POST /api/system/purge-archived-sources`）。
-    - 核对本冷两端 GID，**跳过 pending / downloading 任务**，再删除下载目录里对应的散图文件夹。
+   - 当画廊在冷存储目录成功归档后，可在「系统设置 → 存储面板」点击「清理已归档源目录」（调用 `POST /api/system/purge-archived-sources`）。
+   - 系统核对冷存储与热存储两端的画廊 GID，主动跳过处于 `pending` 或 `downloading` 状态的任务，确认已归档后再删除下载目录中对应的散图文件夹以回收磁盘空间。
 
 ---
 
@@ -227,22 +226,50 @@ vault.example.com {
 
 可在 Web「系统设置」中微调以下参数以适应不同带宽与网络链路：
 
-- **`download_concurrency`（并发画廊数）**：默认 `2`。建议配置在 `1-4` 之间，避免多画廊并行抢占配额。
+- **`download_concurrency`（并发画廊数）**：默认 `2`。建议配置在 `1-4` 之间，避免多画廊并行抢占配额；修改后立即生效，无需重启。
 - **`page_concurrency`（单画廊并发页数）**：默认 `4`，上限 `16`。高速稳定链路可适度上调；UDP/代理链路出现抖动时建议下调至 `2-4`。
-- **`exhentai_max_concurrency`（全局并发上限）**：默认 `6`。系统内部硬限制，严控发往服务端的突发请求密度，保障账号安全。
+- **`exhentai_max_concurrency`（全局并发上限）**：默认 `6`，取值范围 `1-32`。系统内部硬限制，严控发往服务端的突发请求密度，保障账号安全。
 - **`GV_CHALLENGE_PROBE_INTERVAL`（302 探针间隔）**：默认 `600` 秒。遭遇防爬限制时的探测周期。
+- **`GV_MAX_CHALLENGE_PAUSES`（单任务 302 挑战上限）**：默认 `5`。单个任务触发 302 临时挑战并自动暂停的次数上限；达到上限后任务标记为失败并保留剩余重试预算，避免暂停/恢复/再挑战的无限循环。
+- **`THUMBNAIL_WORKERS`（缩略图 worker 数）**：默认 `4`，取值范围 `1-16`。
 
-### 3. 数据库连接池调优
+### 3. 数据库连接池与连接级超时调优
 
 针对高并发后台 worker、大批量画廊导入与并发抓取场景，系统基于 SQLAlchemy 异步连接池提供精细化调优环境变量，可按需在 `docker-compose.yml` 或 `.env` 中配置：
 
 | 环境变量 / 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `database_pool_size` | `30` | SQLAlchemy 连接池基础常驻连接数。 |
-| `database_max_overflow` | `10` | 突发高并发允许超出的临时连接数。超出部分在连接释放后自动销毁。 |
-| `database_pool_timeout` | `30` | 从连接池获取可用连接的超时等待秒数。 |
+| `database_pool_size` | `30` | API 连接池基础常驻连接数。 |
+| `database_max_overflow` | `10` | API 连接池突发高并发允许超出的临时连接数。超出部分在连接释放后自动销毁。 |
+| `database_pool_timeout` | `30` | API 从连接池获取可用连接的超时等待秒数；耗尽时接口返回 `503 Database pool exhausted`。 |
+| `database_statement_timeout_ms` | `30000` | API 连接上单条 SQL 的执行上限（毫秒，`0` 为不限）。超时由 PostgreSQL 取消语句，避免慢查询长期占用连接。 |
+| `database_lock_timeout_ms` | `5000` | API 连接等待行锁/表锁的上限（毫秒，`0` 为不限），超时由 PostgreSQL 中止语句。 |
+| `database_idle_in_tx_timeout_ms` | `60000` | API 连接的空闲事务上限（毫秒）。事务已开启但长时间没有语句执行时，PostgreSQL 终止该会话并归还连接。 |
+| `worker_database_pool_size` | `5` | 后台 worker 独立连接池的常驻连接数，与 API 池隔离，后台任务不会挤占 HTTP 请求连接。 |
+| `worker_database_max_overflow` | `5` | worker 池允许的临时溢出连接数。 |
+| `worker_database_pool_timeout` | `30` | worker 池获取连接的超时等待秒数。 |
+| `worker_database_statement_timeout_ms` | `0` | worker 连接的单条 SQL 上限（毫秒）。默认不限：全量扫描、完整性检查、归档解压等任务本身就耗时长。 |
+| `worker_database_lock_timeout_ms` | `10000` | worker 连接等待行锁/表锁的上限（毫秒，`0` 为不限）。 |
+| `worker_database_idle_in_tx_timeout_ms` | `300000` | worker 连接的空闲事务上限（毫秒，默认 5 分钟），用于回收误被长时间挂起的连接。 |
+
+上述 `*_statement_timeout_ms` / `*_lock_timeout_ms` / `*_idle_in_tx_timeout_ms` 通过 `connect_args={"server_settings": …}` 在建立连接时以 PostgreSQL 会话参数下发，因此对该池的所有连接一致生效，无需在业务 SQL 中重复设置。
+
+连接池耗尽（等待超过 `*_pool_timeout`）与真实数据库故障分开处理：池耗尽返回 `503 {"detail": "Database pool exhausted"}`，并累计 `gv_db_pool_exhausted_total` 指标、写入独立日志（可用于告警区分「容量不足」与「数据库不可用」）；其余数据库错误仍返回 `503 Database is unavailable`。
 
 配合系统的依赖注入生命周期管理与 Unit of Work（UoW）/ 事务与网络 I/O 隔离机制，连接仅在执行具体数据库操作时借出并立即归还，有效防止大规模批量任务和高并发网络 I/O 挂起并耗尽连接池。
+
+### 4. 迁移互斥锁等待上限 (`GALLERYVAULT_MIGRATION_LOCK_TIMEOUT`)
+
+后端容器每次启动都会自动执行 Alembic 迁移。为避免多副本同时启动时在同一批 DDL 上竞争，迁移会先获取 PostgreSQL 会话级 advisory lock（`pg_advisory_lock`）再执行。等待该锁的上限由环境变量 `GALLERYVAULT_MIGRATION_LOCK_TIMEOUT` 控制，单位为秒，默认 `120`：
+
+```yaml
+    environment:
+      - GALLERYVAULT_MIGRATION_LOCK_TIMEOUT=120
+```
+
+- 等待超过上限时，迁移进程以非零码退出并输出 lock timeout 提示；容器重启后重新排队，不会在未拿到锁的情况下执行 DDL。
+- 宿主机手工排障时也可临时覆盖：`GALLERYVAULT_MIGRATION_LOCK_TIMEOUT=3 alembic upgrade head`。
+- 迁移连接自身会在拿到锁后重置 `statement_timeout`/`lock_timeout`，长时间 DDL 不会被这两个值中断。
 
 ---
 
@@ -253,37 +280,50 @@ docker compose pull
 docker compose up -d
 ```
 
-Alembic 数据库结构迁移程序会在 `backend` 启动时自动执行，平滑升级无须手动介入。含重复 `path_hash` 的旧库会在 0039 迁移中合并后再加 UNIQUE 索引。
+Alembic 数据库结构迁移程序会在 `backend` 启动时自动执行，更新数据库表结构与索引。升级前建议执行常规数据库备份以防异常。
 
 ---
 
 ## 运维工具与离线修复脚本速查
 
-针对多端迁移历史遗留的超长文件名或 GID 叠加污染，可在后端容器内直接调用内置的 Python 运维脚本：
+针对多端迁移历史遗留的超长文件名或 GID 叠加污染，可在离线或维护状态下使用内置的 Python 运维脚本进行修复：
 
 ### 1. 冷库与本地目录全量修复 (`repair_cold_archives.py`)
-- **功能**：自动剥离前导重复 GID（如 `[12345] 12345-标题`），批量回查云端官方 GData API 清洗并重构 `.galleryvault.json` 索引。
+- **功能**：检测并剥离如 `[12345] 12345-标题` 的重复前导 GID，分片批量回查云端官方 GData API 并更新 `.galleryvault.json` 索引文件。重命名成功后同步更新数据库中的 `path_hash` 与 `duplicate_records` 的路径/键，避免重复记录失配。
 - **参数说明**：
-  - `--archive-dir`：容器内扫描修复的冷存储或画廊目录路径；
-  - `--dry-run`：安全演练模式，仅打印拟清洗重命名列表与元数据，不写入磁盘；
+  - `--archive-dir`：扫描与修复的目标归档或画廊根目录路径；
+  - `--dry-run`：安全演练模式，仅打印拟修改项与元数据计划，不写入磁盘；
   - `--batch-size`：批量请求 GData 接口的批大小（默认 25）。
-- **容器内一行命令**：
-  ```bash
-  # 演练预览：
-  docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive1 --dry-run
+- **执行方法**：
+  - **宿主机执行**（本地开发或宿主 Python 环境）：
+    ```bash
+    # 演练预览：
+    python backend/galleryvault/scripts/repair_cold_archives.py --archive-dir /path/to/archive --dry-run
 
-  # 正式执行清洗：
-  docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive1
-  ```
+    # 正式执行：
+    python backend/galleryvault/scripts/repair_cold_archives.py --archive-dir /path/to/archive
+    ```
+  - **Docker 容器内执行**（推荐生产部署方式）：
+    ```bash
+    # 演练预览（注意将 /archive 替换为容器内挂载的实际冷存储路径）：
+    docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive --dry-run
+
+    # 正式执行：
+    docker compose exec backend python /app/galleryvault/scripts/repair_cold_archives.py --archive-dir /archive
+    ```
 
 ### 2. CBZ 超长文件名 243 字节对齐 (`repair_cbz_filenames.py`)
-- **功能**：将旧 CBZ 文件名按 Linux ext4 243 字节规范统一截断对齐，彻底根除 `[Errno 36] File name too long`。
+- **功能**：遍历目标目录中的历史 CBZ 文件，按 243 字节文件名限制进行截断对齐，规避文件系统错误。
+- **环境要求**：脚本位于仓库根目录 `scripts/repair_cbz_filenames.py`，**未打包进 Docker 镜像**，须在宿主机直接调用 Python 执行。
 - **参数说明**：
-  - `--target-dir`：待处理的旧 CBZ 文件目录；
+  - `--target-dir`：待处理的 CBZ 归档目录路径；
   - `--max-bytes`：字节截断上限（默认 243 字节）；
-  - `--dry-run`：仅演练输出拟截断列表。
-- **宿主执行**（脚本在仓库根 `scripts/`，**未打进镜像**）：
+  - `--dry-run`：安全演练模式，仅打印拟截断重命名的文件列表。
+- **宿主机执行**：
   ```bash
+  # 演练预览：
   python scripts/repair_cbz_filenames.py --target-dir /path/to/archive --dry-run
+
+  # 正式执行：
   python scripts/repair_cbz_filenames.py --target-dir /path/to/archive
   ```

@@ -4,7 +4,7 @@
 
 ## Checklist
 
-- [ ] Ran the checks (backend: `ruff check .` + `pytest`; frontend: `for f in assets/*.js assets/locales/*.js assets/views/*.js; do node --check "$f"; done`)
+- [ ] Ran the checks (backend: `ruff check .` + `pytest`; frontend: `npm --prefix frontend ci && npm --prefix frontend run typecheck && npm --prefix frontend run lint && npm --prefix frontend run test:unit && npm --prefix frontend run build`)
 - [ ] Schema changes go through an Alembic migration (`alembic revision --autogenerate`)
 - [ ] Backward compatible; existing settings/data keep working
 - [ ] No secrets/cookies/tokens logged or added to the repo

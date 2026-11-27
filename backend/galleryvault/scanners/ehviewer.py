@@ -22,7 +22,19 @@ from ..metadata.sidecar import (
 from .base import GalleryMeta, GalleryScanner, PageInfo, infer_category
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"}
-_GID = re.compile(r"^(\d+)-")
+# EH gallery ids use at least five digits.  Directory names and archive names
+# share this rule so a short numeric prefix ("2023 - Trip") is never treated
+# as a gallery id.
+GID_MIN_DIGITS = 5
+_GID_DIGITS = rf"\d{{{GID_MIN_DIGITS},}}"
+GID_PREFIX_RE = re.compile(rf"^({_GID_DIGITS})\s*-\s*")
+
+
+def parse_gid_prefix(name: str) -> int | None:
+    """Return the gid encoded as a ``<gid>-<title>`` prefix, if any."""
+    match = GID_PREFIX_RE.match(name)
+    return int(match.group(1)) if match else None
+
 
 __all__ = [
     "IMAGE_EXTENSIONS",
@@ -78,6 +90,34 @@ def _safe_resolve_page_file(gallery_dir: Path, page_name: str) -> Path:
     return candidate
 
 
+# JHenTai metadata can carry long title/tag strings, so the ``gallery`` key is
+# not guaranteed to appear in the first few kilobytes.  Probe in bounded chunks
+# instead of a fixed 4 KiB head read.
+_JHENTAI_GALLERY_MARKER = b'"gallery"'
+_JHENTAI_PROBE_LIMIT = 4 * 1024 * 1024
+_JHENTAI_PROBE_CHUNK = 64 * 1024
+
+
+def _metadata_has_gallery(metadata: Path) -> bool:
+    """Return True if the bounded head of a JHenTai metadata file has the key."""
+    total = 0
+    tail = b""
+    marker = _JHENTAI_GALLERY_MARKER
+    try:
+        with metadata.open("rb") as fh:
+            while total < _JHENTAI_PROBE_LIMIT:
+                chunk = fh.read(_JHENTAI_PROBE_CHUNK)
+                if not chunk:
+                    return False
+                total += len(chunk)
+                if marker in tail + chunk:
+                    return True
+                tail = chunk[-(len(marker) - 1) :]
+    except OSError:
+        return False
+    return False
+
+
 class EhviewerDirScanner(GalleryScanner):
     storage_type = "ehviewer_dir"
 
@@ -129,12 +169,10 @@ class EhviewerDirScanner(GalleryScanner):
                 warnings.append("invalid .galleryvault.json")
 
         # Filename regex gid has priority over sidecar gid; sidecar gid has priority over spider
-        gid_match = _GID.match(path.name)
-        if gid_match:
-            gid = int(gid_match.group(1))
-        elif gv_data and gv_data.get("gid") is not None:
+        gid = parse_gid_prefix(path.name)
+        if gid is None and gv_data and gv_data.get("gid") is not None:
             gid = gv_data["gid"]
-        else:
+        if gid is None:
             gid = spider.gid
 
         # token and p_tokens: sidecar priority, fallback to spider
@@ -221,12 +259,7 @@ class JhentaiDirScanner(GalleryScanner):
         metadata = path / self._METADATA_NAME
         if not metadata.is_file():
             return False
-        try:
-            with metadata.open("r", encoding="utf-8") as fh:
-                head = fh.read(4096)
-        except OSError:
-            return False
-        return '"gallery"' in head
+        return _metadata_has_gallery(metadata)
 
     def scan(self, path: Path) -> GalleryMeta:
         metadata_path = path / self._METADATA_NAME
@@ -351,9 +384,9 @@ class BareImageDirScanner(GalleryScanner):
 
     def scan(self, path: Path) -> GalleryMeta:
         match = _DIR_NAME.match(path.name)
-        filename_gid = int(match.group(1)) if match else None
+        filename_gid = parse_gid_prefix(path.name)
         rest = match.group(2) if match else path.name
-        if filename_gid is None and path.name.isdigit():
+        if filename_gid is None and path.name.isdigit() and len(path.name) >= GID_MIN_DIGITS:
             filename_gid = int(path.name)
 
         files = sorted(

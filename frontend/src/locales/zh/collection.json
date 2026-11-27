@@ -1,0 +1,61 @@
+{
+  "view": {
+    "label": "视图",
+    "grid": "网格视图",
+    "list": "列表视图",
+    "table": "表格视图"
+  },
+  "tags": {
+    "sheetTitle": "标签",
+    "overlayLabel": "标签预览",
+    "menuLabel": "标签菜单"
+  },
+  "table": {
+    "select": "选择",
+    "cover": "封面",
+    "title": "标题",
+    "category": "分类",
+    "tags": "标签",
+    "uploader": "上传者",
+    "pages": "页数",
+    "size": "大小",
+    "rating": "评分",
+    "posted": "上传时间",
+    "progress": "进度",
+    "status": "状态",
+    "actions": "操作"
+  },
+  "sort": {
+    "asc": "{column}：升序",
+    "desc": "{column}：降序",
+    "none": "{column}：未排序"
+  },
+  "grid": {
+    "pages": "{count}P",
+    "progress": "{current}/{total}P",
+    "tagsLabel": "标签预览",
+    "readNow": "阅读"
+  },
+  "list": {
+    "pages": "{count}P",
+    "progress": "{current}/{total}P",
+    "empty": "—",
+    "uploader": "上传者 {name}",
+    "artist": "作者 {name}",
+    "language": "语言 {name}",
+    "readNow": "阅读"
+  },
+  "status": {
+    "favorited": "已收藏",
+    "notFavorited": "未收藏",
+    "inLibrary": "已在库",
+    "download": "下载状态",
+    "unread": "未读",
+    "read": "已读"
+  },
+  "rating": {
+    "label": "评分 {value}",
+    "none": "无评分"
+  },
+  "loadedAll": "已全部加载"
+}

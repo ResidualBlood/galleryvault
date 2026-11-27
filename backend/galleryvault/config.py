@@ -1,10 +1,11 @@
+import functools
 import json
 import logging
 import os
 import secrets
 from pathlib import Path
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,24 @@ class Settings(BaseSettings):
     database_pool_size: int = 30
     database_max_overflow: int = 10
     database_pool_timeout: int = 30
+    # Connection-level PostgreSQL guards, in milliseconds, applied through
+    # ``connect_args["server_settings"]`` at connect time.  0 disables the cap
+    # (PostgreSQL semantics).  The API keeps tight bounds so a runaway request
+    # cannot pin a pooled connection; workers get a much larger statement
+    # budget because full scans and integrity passes legitimately run long.
+    database_statement_timeout_ms: int = Field(default=30000, ge=0, le=86_400_000)
+    database_lock_timeout_ms: int = Field(default=5000, ge=0, le=86_400_000)
+    database_idle_in_tx_timeout_ms: int = Field(default=60000, ge=0, le=86_400_000)
+    # Worker pool: kept separate from the API pool so background jobs can never
+    # exhaust the connections serving HTTP requests.
+    worker_database_pool_size: int = Field(default=5, ge=1, le=100)
+    worker_database_max_overflow: int = Field(default=5, ge=0, le=100)
+    worker_database_pool_timeout: int = Field(default=30, ge=0, le=3600)
+    worker_database_statement_timeout_ms: int = Field(default=0, ge=0, le=86_400_000)
+    worker_database_lock_timeout_ms: int = Field(default=10000, ge=0, le=86_400_000)
+    worker_database_idle_in_tx_timeout_ms: int = Field(
+        default=300000, ge=0, le=86_400_000
+    )
     library_roots: list[str] = Field(default_factory=lambda: ["/library", "/downloads"])
     download_root: str = "/downloads"
     cold_storage_root: str = ""
@@ -25,7 +44,10 @@ class Settings(BaseSettings):
     archive_delete_source: bool = False
     thumbnail_cache_dir: str = "/gv-cache/thumbs"
     generate_thumbnails: bool = True
-    thumbnail_workers: int = 4
+    # Worker count for thumbnail generation; 0 would create no workers at all
+    # (the seeding loop then waits forever), so it is bounded like the other
+    # concurrency knobs.
+    thumbnail_workers: int = Field(default=4, ge=1, le=16)
     log_level: str = "INFO"
     log_json: bool = False
     log_file: str | None = None
@@ -33,6 +55,11 @@ class Settings(BaseSettings):
     log_backup_count: int = 3
     scan_batch_size: int = 500
     auth_secret: str | None = None
+    # True when ``auth_secret`` was generated in this process because neither
+    # env nor the database provided one; app.auth then restores the persisted
+    # secret on first request so every worker signs sessions identically.
+    auth_secret_ephemeral: bool = False
+    _generated_auth_secret: str | None = PrivateAttr(default=None)
     auth_password_hash: str | None = None
     auth_password: str | None = None
     auth_required: bool = True
@@ -79,7 +106,14 @@ class Settings(BaseSettings):
     # Cap on parallel ExHentai requests across ALL background workers (tag
     # sync, downloads, favorites, covers). Kept low to avoid tripping
     # ExHentai's anti-abuse when several tasks run at once.
-    exhentai_max_concurrency: int = 6
+    exhentai_max_concurrency: int = Field(default=6, ge=1, le=32)
+    # Direct-connect reader self-limit. The browser fetches the image bytes from
+    # H@H; the server only resolves URLs, but still caps concurrent resolves so
+    # one reader cannot monopolise the shared ExHentai page budget.
+    online_reader_concurrency: int = Field(default=3, ge=1, le=16)
+    # Disk ceiling for the optional server-side online-image cache (proxy mode);
+    # kept here so both reader modes share one settings surface.
+    online_cache_max_mb: int = Field(default=512, ge=16)
     title_display: str = "japanese"
     auto_sync_tags: bool = True
     tag_sync_interval_seconds: float = 1.5
@@ -93,6 +127,10 @@ class Settings(BaseSettings):
     telegram_notify_lang: str = "zh"
     favorites_categories: list[int] = Field(default_factory=lambda: list(range(10)))
     download_favorites_enabled: bool = False
+    # Where a favourites row that only exists in the cloud opens: ``app`` keeps
+    # the user in the in-app online detail (reading progress + enqueue context
+    # stay continuous), ``external`` opens the ExHentai page in a new tab.
+    favorites_cloud_open: str = "app"
     duplicate_policy: str = "keep_first"
     global_paused: bool = False
     model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
@@ -156,6 +194,8 @@ class Settings(BaseSettings):
             raise ValueError("favorites_archive_max_pages must be >= 0")
         if self.download_title not in {"japanese", "english"}:
             raise ValueError("download_title must be 'japanese' or 'english'")
+        if self.favorites_cloud_open not in {"app", "external"}:
+            raise ValueError("favorites_cloud_open must be 'app' or 'external'")
         if self.title_display not in {"japanese", "english", "directory"}:
             raise ValueError("title_display must be 'japanese', 'english', or 'directory'")
         if self.telegram_notify_level not in {"summary", "immediate", "failures_only", "off"}:
@@ -228,6 +268,8 @@ class Settings(BaseSettings):
             self.cold_storage_root = ""
         if not self.auth_secret:
             self.auth_secret = secrets.token_urlsafe(32)
+            self.auth_secret_ephemeral = True
+            self._generated_auth_secret = self.auth_secret
             logger.info("AUTH_SECRET not set in env, will use DB-persisted secret or generate a new one")
 
 
@@ -298,6 +340,7 @@ EDITABLE_SETTINGS = {
         "favorites_poll_interval_minutes",
     "favorites_categories",
     "download_favorites_enabled",
+    "favorites_cloud_open",
     "telegram_bot_token",
     "telegram_chat_ids",
     "telegram_allowed_user_ids",
@@ -310,17 +353,28 @@ EDITABLE_SETTINGS = {
     "duplicate_policy",
     "trusted_proxies",
     "global_paused",
+    "online_reader_concurrency",
+    "online_cache_max_mb",
 }
 
 
+@functools.lru_cache(maxsize=1)
 def load_settings() -> Settings:
     """Load Settings from environment variables + built-in defaults.
 
     There is no config.json and no secrets file: everything user-editable is
     persisted in PostgreSQL (``app_config.user_settings``) and re-applied at
     startup.  Only infrastructure values that are needed to reach the database
-    (``database_url``, ``log_level``, ``log_json``, ``scan_batch_size``) come
-    from the environment, and they all have sensible defaults.
+    (``database_url``, the pool/timeout tuning knobs, ``log_level``,
+    ``log_json``, ``scan_batch_size``) come from the environment, and they all
+    have sensible defaults.
+
+    The result is cached for the process lifetime.  This is the environment
+    baseline only: runtime settings are read from ``app_state.settings``
+    (which may be a ``model_copy`` with database values applied).  Tests that
+    mutate the environment must clear the cache via
+    ``load_settings.cache_clear()`` (``tests/conftest.py`` does this around
+    every test).
     """
     return Settings()
 

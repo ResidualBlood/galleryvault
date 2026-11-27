@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="frontend/assets/icon.svg" alt="GalleryVault Logo" width="96" height="96">
+<img src="frontend/public/icon.svg" alt="GalleryVault Logo" width="96" height="96">
 
 # GalleryVault
 

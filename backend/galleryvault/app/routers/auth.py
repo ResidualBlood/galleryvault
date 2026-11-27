@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import secrets as _secrets
 from urllib.parse import parse_qs
@@ -19,18 +20,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...auth import (
     DEFAULT_PASSWORD,
+    LOGIN_RATE_WINDOW,
+    account_lock_remaining,
     client_ip,
     create_session,
     hash_password,
+    login_failed,
     login_gate,
     login_succeeded,
     verify_login_password,
+    verify_session,
 )
 from ...db.models import Gallery
 from ...db.repository import SettingsRepository
-from ...db.session import safe_transaction
 from ...logging import log_extra
 from ...secrets import encrypt, encryption_enabled
+from ...services import api_token as api_token_service
 from ..dependencies import db_error, get_current_settings, get_session, resolve_session
 from ..state import app_state
 
@@ -50,6 +55,10 @@ def _password_effective() -> str | None:
     if settings.auth_password:
         return settings.auth_password
     return None
+
+
+def _matches_default_password(password: str) -> bool:
+    return hmac.compare_digest(password, DEFAULT_PASSWORD)
 
 
 def _must_change_password() -> bool:
@@ -74,28 +83,76 @@ def _cookie_secure(request: Request, settings) -> bool:
     return False
 
 
+def _reject_bearer_management(request: Request) -> None:
+    """Token management is cookie-session only, never Bearer-authenticated."""
+    scheme = request.headers.get("authorization", "").partition(" ")[0].lower()
+    if scheme == "bearer":
+        raise HTTPException(status_code=403, detail="Bearer token cannot manage API tokens")
+
+
+def _require_session(request: Request) -> None:
+    settings = get_current_settings()
+    if not settings.auth_required:
+        return
+    if not verify_session(
+        request.cookies.get(settings.auth_cookie_name), settings.auth_secret or ""
+    ):
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+
 @router.post("/login")
 async def login(request: Request):
     ip = client_ip(request)
-    if not await login_gate(ip):
+    retry_after = await account_lock_remaining(ip)
+    if retry_after <= 0 and not await login_gate(ip):
+        retry_after = LOGIN_RATE_WINDOW
+    if retry_after > 0:
         logger.info(
-            "login rate limited", extra=log_extra(ip=ip, reason="rate_limit")
+            "login rate limited",
+            extra=log_extra(ip=ip, reason="rate_limit", retry_after=int(retry_after)),
         )
-        return HTMLResponse("Too many attempts, try again later", status_code=429)
+        return HTMLResponse(
+            "Too many attempts, try again later",
+            status_code=429,
+            headers={"Retry-After": str(max(1, int(retry_after + 0.999)))},
+        )
     form = parse_qs((await request.body()).decode(errors="replace"), keep_blank_values=True)
     password = form.get("password", [""])[0]
     if len(password) > 256:
         password = password[:256]
     valid = True
+    used_default = False
     settings = get_current_settings()
     if settings.auth_required:
-        valid = verify_login_password(password, _password_effective())
+        effective = _password_effective()
+        if not effective:
+            # Fresh install / reset: no password configured yet. Accept only the
+            # built-in default so onboarding can reach #/welcome and change it.
+            # Basic Auth intentionally does not: verify_login_password keeps
+            # rejecting the default when nothing is configured.
+            valid = _matches_default_password(password)
+            used_default = valid
+        else:
+            valid = verify_login_password(password, effective)
     if not valid:
+        # The single administrator account backs off across all source IPs.
+        lockout = await login_failed(ip)
         logger.info(
             "authentication failed",
-            extra=log_extra(ip=ip, reason="invalid_password"),
+            extra=log_extra(ip=ip, reason="invalid_password", lockout_seconds=int(lockout)),
         )
+        if lockout > 0:
+            return HTMLResponse(
+                "Too many attempts, try again later",
+                status_code=429,
+                headers={"Retry-After": str(max(1, int(lockout + 0.999)))},
+            )
         return RedirectResponse("/login?error=1", status_code=303)
+    if used_default:
+        logger.warning(
+            "login with built-in default password",
+            extra=log_extra(ip=ip, reason="default_password"),
+        )
     response = RedirectResponse("/", status_code=303)
     response.set_cookie(
         settings.auth_cookie_name,
@@ -133,6 +190,56 @@ async def auth_session() -> dict[str, object]:
     }
 
 
+@router.post("/api/auth/api-token")
+async def create_api_token(
+    request: Request,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, str]:
+    """Generate the single companion-script token; plaintext is returned once."""
+    _reject_bearer_management(request)
+    _require_session(request)
+    session = await resolve_session(session, fallback_dep=get_session)
+    try:
+        token = await api_token_service.create_token(session)
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    logger.info("api token generated")
+    return {"token": token}
+
+
+@router.get("/api/auth/api-token")
+async def get_api_token(
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, object]:
+    """Report whether a token exists; the token/hash is never returned."""
+    session = await resolve_session(session, fallback_dep=get_session)
+    try:
+        metadata = await api_token_service.load_token_metadata(session)
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    return {
+        "configured": bool(metadata["configured"]),
+        "created_at": metadata["created_at"],
+    }
+
+
+@router.delete("/api/auth/api-token", status_code=204)
+async def revoke_api_token(
+    request: Request,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> Response:
+    """Revoke the current token; a later request must use a newly generated one."""
+    _reject_bearer_management(request)
+    _require_session(request)
+    session = await resolve_session(session, fallback_dep=get_session)
+    try:
+        await api_token_service.revoke_token(session)
+    except SQLAlchemyError as exc:
+        raise db_error(exc) from exc
+    logger.info("api token revoked")
+    return Response(status_code=204)
+
+
 @router.get("/api/onboarding/status")
 async def onboarding_status(
     session: AsyncSession = Depends(get_session),  # noqa: B008
@@ -167,11 +274,11 @@ async def change_password(
     effective = _password_effective()
     using_default = effective is None
     current_valid = (
-        using_default and body.current == DEFAULT_PASSWORD
+        using_default and _matches_default_password(body.current)
     ) or verify_login_password(body.current, effective)
     if not current_valid:
         raise HTTPException(status_code=403, detail="Current password is incorrect")
-    if body.new == DEFAULT_PASSWORD and using_default:
+    if using_default and _matches_default_password(body.new):
         raise HTTPException(status_code=422, detail="New password cannot be the default")
     new_hash = hash_password(body.new)
     new_secret = _secrets.token_urlsafe(32)
@@ -179,8 +286,9 @@ async def change_password(
     if encryption_enabled():
         stored = {k: encrypt(v) for k, v in stored.items()}
     try:
-        async with safe_transaction(session):
-            await SettingsRepository(session).save_extra(stored)
+        await api_token_service.save_runtime_auth(
+            session, stored, repository=SettingsRepository(session)
+        )
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 

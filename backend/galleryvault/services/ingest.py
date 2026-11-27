@@ -19,6 +19,24 @@ CRITICAL_SIDECAR_KEYS = ("gid", "token", "category", "quality", "p_tokens", "tag
 ARCHIVE_STORAGE_TYPES = {"cbz", "zip", "pdf", "cbr", "rar"}
 
 
+def _explicit_title_jpn(gallery: GalleryMeta, raw: dict[str, Any]) -> str | None:
+    """Return ``title_jpn`` only when a scanner/sidecar supplied it explicitly.
+
+    Scanners fall back to the directory name (minus the ``<gid>-`` prefix) when no
+    Japanese title is known. Persisting such a guess as ``title_jpn`` turns it into
+    authoritative metadata that later cloud metadata can never replace, so guesses
+    are not written. Values already present in the sidecar win (never overwritten).
+    """
+    candidates = [raw.get("title_jpn")]
+    source_meta = getattr(gallery, "source_meta", None)
+    if isinstance(source_meta, dict):
+        candidates.append(source_meta.get("title_jpn"))
+    for value in candidates:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 class GalleryIngestService:
     def __init__(self, session: AsyncSession, batch_size: int = 500) -> None:
         self.repository = GalleryRepository(session)
@@ -141,7 +159,7 @@ class GalleryIngestService:
         category = gallery.category if gallery.category is not None else raw_dict.get("category")
         tags = gallery.tags if gallery.tags else raw_dict.get("tags")
         title = gallery.title if gallery.title else raw_dict.get("title")
-        title_jpn = gallery.title_jpn if gallery.title_jpn else raw_dict.get("title_jpn")
+        title_jpn = _explicit_title_jpn(gallery, raw_dict)
         uploader = gallery.uploader if gallery.uploader else raw_dict.get("uploader")
         posted = (
             gallery.posted_at

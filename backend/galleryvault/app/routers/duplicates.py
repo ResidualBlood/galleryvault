@@ -6,28 +6,34 @@ import asyncio
 import logging
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.params import Depends as DependsType
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from ...db.repository import FavoritesRepository, GalleryRepository
+from ...db.repository import GalleryRepository
 from ...db.session import safe_transaction
 from ...scanners import registry
-from ...services.deletion import in_scan_roots
+from ...services.deletion import _scan_roots_default, in_scan_roots
+from ...services.duplicate_groups import kind_scanned, list_groups, set_group_status
 from ...services.ingest import GalleryIngestService
 from ...services.tag_translation import translated_tag
 from ...services.thumbnails import ThumbnailError, ThumbnailService
-from ..dependencies import get_current_settings, get_session, resolve_display_title, resolve_session
+from ..dependencies import (
+    get_current_settings,
+    get_session,
+    release_session,
+    resolve_display_title,
+    resolve_session,
+    spawn_task,
+)
 from ..state import app_state
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-_cross_gid_lock = asyncio.Lock()
 
 DUP_JPEG = "image/jpeg"
 
@@ -38,11 +44,14 @@ class DuplicateResolveRequest(BaseModel):
 
 
 def _scan_roots() -> list[str]:
-    settings = get_current_settings()
-    roots = list(settings.library_roots)
-    if settings.download_root and settings.download_root not in roots:
-        roots.append(settings.download_root)
-    return roots
+    """Deletable roots: library/download plus archive/cold-storage roots.
+
+    Cold-storage copies live outside ``library_roots``; without the archive roots
+    the dedupe endpoint refuses every cold copy and the group can never be
+    resolved.  Delegating to the deletion service keeps this list identical to
+    the boundary used by the actual delete path.
+    """
+    return _scan_roots_default()
 
 
 def _in_roots(path: Path) -> bool:
@@ -117,6 +126,7 @@ async def resolve_duplicate(
     async with safe_transaction(session):
         await GalleryIngestService(session).ingest([meta])
 
+    failed_paths: list[str] = []
     if body.delete_others:
 
         def _delete_path(path: Path) -> None:
@@ -136,11 +146,24 @@ async def resolve_duplicate(
                     "duplicate copy deletion failed",
                     extra={"path": str(target), "error": str(exc)},
                 )
-        async with safe_transaction(session):
-            await GalleryRepository(session).delete_duplicate(gid)
+                failed_paths.append(str(target))
+        if failed_paths:
+            # Keep the duplicate record when a copy survived on disk: deleting it
+            # would leave that copy both untracked and invisible on the dedupe page.
+            logger.warning(
+                "duplicate group kept because some copies could not be deleted",
+                extra={"gid": gid, "failed_paths": failed_paths},
+            )
+        else:
+            async with safe_transaction(session):
+                await GalleryRepository(session).delete_duplicate(gid)
 
     refreshed = await GalleryRepository(session).list_duplicates()
-    return {"groups": refreshed, "count": len(refreshed)}
+    return {
+        "groups": refreshed,
+        "count": len(refreshed),
+        "failed_paths": failed_paths,
+    }
 
 
 @router.post("/api/scan/duplicates/{gid}/dismiss")
@@ -167,6 +190,25 @@ async def restore_duplicate(
     if not ok:
         raise HTTPException(status_code=404, detail="duplicate group not found")
     return {"status": "open"}
+
+
+@router.post("/api/scan/duplicates/{gid}/{status}")
+async def set_duplicate_status_route(
+    gid: int,
+    status: Literal["open", "dismissed"],
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, str]:
+    """Set a duplicate group's status through the canonical frontend route.
+
+    Declared after ``/resolve``, ``/dismiss`` and ``/restore`` so those keep
+    precedence; B5 collapses the legacy routes into this one.
+    """
+    session = await resolve_session(session, fallback_dep=get_session)
+    async with safe_transaction(session):
+        ok = await GalleryRepository(session).set_duplicate_status(gid, status)
+    if not ok:
+        raise HTTPException(status_code=404, detail="duplicate group not found")
+    return {"status": status}
 
 
 @router.get("/api/scan/duplicates/thumb/{key}")
@@ -225,6 +267,9 @@ async def duplicate_thumb(
     except (ValueError, TypeError):
         raise HTTPException(status_code=404, detail="copy not found")
 
+    # The file is served after this handler returns; do not hold the request
+    # connection for the whole transfer.
+    await release_session(session)
     return FileResponse(
         resolved_cached,
         media_type=DUP_JPEG,
@@ -234,6 +279,9 @@ async def duplicate_thumb(
 
 def _serialize_cross_gid_group(
     group: dict[str, Any],
+    *,
+    group_id: int | None = None,
+    status: str | None = None,
 ) -> dict[str, Any]:
     items = []
     for it in group.get("items") or []:
@@ -258,64 +306,103 @@ def _serialize_cross_gid_group(
                 f"/api/favorites/cover?gid={int(it_copy['gid'])}&token={it_copy['token']}"
             )
         items.append(it_copy)
-    return {
+    serialized: dict[str, Any] = {
         "key": group.get("key"),
         "artist": group.get("artist"),
         "items": items,
     }
+    if group_id is not None:
+        serialized["id"] = group_id
+    if status is not None:
+        serialized["status"] = status
+    return serialized
+
+
+def _cross_gid_group_from_row(row: Any) -> dict[str, Any]:
+    payload = dict(getattr(row, "payload", None) or {})
+    return _serialize_cross_gid_group(
+        {
+            "key": row.group_key,
+            "artist": row.artist,
+            "items": payload.get("items") or [],
+        },
+        group_id=row.id,
+        status=row.status,
+    )
 
 
 @router.get("/api/library/duplicates/cross-gid")
-async def get_cross_gid_duplicates(
+async def list_cross_gid_groups(
+    status: Literal["open", "dismissed"] = "open",
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
-    from ...services.duplicates import duplicate_group_is_ignored
+    """List persisted cross-GID groups (T5.3: ``kind='cross_gid'`` rows).
 
-    raw_groups = app_state.cross_gid_duplicates
-    if raw_groups is None:
+    ``ready`` means the scan has completed at least once for this kind.  Rows a
+    scan no longer finds keep ``present=false``; dismissed ones stay restorable,
+    open ones are dropped by the sync, so ``present`` only hides stale payloads.
+    """
+    session = await resolve_session(session, fallback_dep=get_session)
+    rows = await list_groups(session, "cross_gid")
+    ready = any(row.last_seen_at is not None for row in rows)
+    if not ready:
+        ready = await kind_scanned(session, "cross_gid")
+    if not ready:
         return {"ready": False, "count": 0, "groups": []}
 
-    ignored_keys: set[str] = set()
-    ignored_gid_sets: list[set[int]] = []
-
-    actual_session: AsyncSession | None = None
-    if not isinstance(session, DependsType) and session is not None:
-        actual_session = session
-    elif app_state.session_factory is not None:
-        actual_session = await resolve_session(session, fallback_dep=get_session)
-
-    if actual_session is not None:
-        fav_repo = FavoritesRepository(actual_session)
-        ignored_keys = await fav_repo.ignored_duplicate_keys()
-        ignored = await fav_repo.ignored_duplicates()
-        ignored_gid_sets = [
-            set(r.get("gids") or []) for r in ignored if r.get("gids")
-        ]
-
-    filtered: list[dict[str, Any]] = []
-    for g in raw_groups:
-        if duplicate_group_is_ignored(g, ignored_keys, ignored_gid_sets):
-            continue
-        filtered.append(_serialize_cross_gid_group(g))
-
-    return {"ready": True, "count": len(filtered), "groups": filtered}
+    visible = [
+        row
+        for row in rows
+        if row.status == status and (row.present or status == "dismissed")
+    ]
+    groups = [_cross_gid_group_from_row(row) for row in visible]
+    return {"ready": True, "count": len(groups), "groups": groups}
 
 
-@router.post("/api/library/duplicates/cross-gid/refresh")
-async def refresh_cross_gid_duplicates(
+@router.post("/api/library/duplicates/cross-gid/{group_id}/dismiss")
+async def dismiss_cross_gid_duplicate(
+    group_id: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, str]:
+    session = await resolve_session(session, fallback_dep=get_session)
+    async with safe_transaction(session):
+        row = await set_group_status(session, "cross_gid", group_id, "dismissed")
+    if row is None:
+        raise HTTPException(status_code=404, detail="duplicate group not found")
+    return {"status": "dismissed"}
+
+
+@router.post("/api/library/duplicates/cross-gid/{group_id}/restore")
+async def restore_cross_gid_duplicate(
+    group_id: int,
+    session: AsyncSession = Depends(get_session),  # noqa: B008
+) -> dict[str, str]:
+    session = await resolve_session(session, fallback_dep=get_session)
+    async with safe_transaction(session):
+        row = await set_group_status(session, "cross_gid", group_id, "open")
+    if row is None:
+        raise HTTPException(status_code=404, detail="duplicate group not found")
+    return {"status": "open"}
+
+
+@router.post("/api/library/duplicates/cross-gid/refresh", status_code=202)
+async def refresh_cross_gid_groups(
     session: AsyncSession = Depends(get_session),  # noqa: B008
 ) -> dict[str, object]:
     session = await resolve_session(session, fallback_dep=get_session)
-    from ...services.duplicates import scan_library_cross_gid_duplicates
+    from ...services.duplicates import cross_gid_scan_lock, run_cross_gid_scan
 
     session_factory = app_state.session_factory
     if not session_factory:
         raise HTTPException(status_code=503, detail="Database not available")
-
-    if _cross_gid_lock.locked():
+    if cross_gid_scan_lock.locked():
         raise HTTPException(status_code=409, detail="Cross-GID scan already running")
 
-    async with _cross_gid_lock:
-        await scan_library_cross_gid_duplicates(session_factory)
-    return await get_cross_gid_duplicates(session=session)
+    # T5.2: the scan moved off the request path.  Spawn it, yield once so the
+    # task can take the lock, then answer 202 with the current (possibly stale)
+    # view; the next GET/reload shows the persisted result.
+    spawn_task(run_cross_gid_scan(session_factory), "duplicates cross-gid scan")
+    await asyncio.sleep(0)
+    return await list_cross_gid_groups(session=session)
+
 

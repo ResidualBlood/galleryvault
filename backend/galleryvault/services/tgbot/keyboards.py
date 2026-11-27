@@ -24,17 +24,6 @@ def inline_keyboard(rows: list[list[dict[str, Any]]]) -> dict[str, list[list[dic
     return {"inline_keyboard": rows}
 
 
-def buttons_grid(
-    buttons: list[dict[str, Any]], cols: int = 2
-) -> dict[str, list[list[dict[str, Any]]]]:
-    """Arrange a flat list of buttons into an N-column keyboard grid."""
-    cols = max(cols, 1)
-    rows: list[list[dict[str, Any]]] = []
-    for i in range(0, len(buttons), cols):
-        rows.append(buttons[i : i + cols])
-    return inline_keyboard(rows)
-
-
 def build_pagination_row(
     current_page: int,
     total_pages: int,
@@ -65,20 +54,3 @@ def build_pagination_row(
             )
         )
     return row
-
-
-def confirm_keyboard(
-    confirm_action: str,
-    cancel_action: str = "cancel",
-    confirm_text: str = "确认",
-    cancel_text: str = "取消",
-) -> dict[str, list[list[dict[str, Any]]]]:
-    """Build a standard two-button confirmation keyboard."""
-    return inline_keyboard(
-        [
-            [
-                inline_button(confirm_text, callback_data=confirm_action),
-                inline_button(cancel_text, callback_data=cancel_action),
-            ]
-        ]
-    )

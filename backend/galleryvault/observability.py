@@ -79,10 +79,15 @@ def measure_duration(
         observe_histogram(name, elapsed, labels=labels, buckets=buckets)
 
 
+def _escape_label_value(value: object) -> str:
+    """Escape a Prometheus label value (backslash, quote, newline)."""
+    return str(value).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+
+
 def _format_metric_key(name: str, labels: dict[str, str] | None) -> str:
     if not labels:
         return name
-    label_str = ",".join(f'{k}="{v}"' for k, v in sorted(labels.items()))
+    label_str = ",".join(f'{k}="{_escape_label_value(v)}"' for k, v in sorted(labels.items()))
     return f"{name}{{{label_str}}}"
 
 
@@ -106,7 +111,7 @@ async def request_id_middleware(request: Request, call_next):
         _request_id_var.reset(token)
         if "response" in locals() and response is not None:
             response.headers["X-Request-ID"] = rid
-        _bump(f'gv_http_requests_total{{code="{status_code}"}}')
+        inc_counter("gv_http_requests_total", 1, {"code": str(status_code)})
         observe_histogram("gv_http_request_duration_seconds", elapsed, {"code": str(status_code)})
 
 

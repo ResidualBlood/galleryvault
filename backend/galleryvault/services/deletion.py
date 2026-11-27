@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from ..logging import log_extra
 from ..observability import measure_duration
 from ..scanners.ehviewer import IMAGE_EXTENSIONS
+from .duplicate_groups import remove_group_copies
 from .storage_usage import safe_stat_size, storage_tracker
 
 if TYPE_CHECKING:
@@ -22,12 +23,29 @@ logger = logging.getLogger(__name__)
 
 
 def in_scan_roots(path: Path, roots: list[str]) -> bool:
-    """True when ``path`` (resolved) sits under one of the configured scan roots."""
+    """True when ``path`` (resolved) sits strictly under one of the configured scan roots.
+
+    A configured root itself is never a valid deletion target: ``is_relative_to``
+    returns True for equal paths, so a single bad ``storage_path`` pointing at a
+    root would otherwise wipe the whole library.  The filesystem root is refused
+    for the same reason.
+    """
     try:
         resolved = path.resolve()
     except (ValueError, TypeError, OSError):
         return False
-    return any(resolved.is_relative_to(Path(root).resolve()) for root in roots)
+    if resolved == Path(resolved.anchor):
+        return False
+    for root in roots:
+        try:
+            root_resolved = Path(root).resolve()
+        except (ValueError, TypeError, OSError):
+            continue
+        if resolved == root_resolved:
+            continue
+        if resolved.is_relative_to(root_resolved):
+            return True
+    return False
 
 
 def _is_in_download_root(path: Path) -> bool:
@@ -199,9 +217,25 @@ def collapse_same_stem_pages(path: Path) -> int:
 
 
 def _scan_roots_default() -> list[str]:
+    """Roots where a deletion target is allowed to live.
+
+    Besides the library and download roots, archive/cold-storage roots are valid
+    deletion targets: a gallery archived into cold storage must still be
+    removable.  They are resolved through ``cold_archive.resolve_archive_roots``
+    so deletion shares the archive writer's notion of configured archive roots
+    (``archive_roots``, falling back to ``cold_storage_root``).
+    """
     from ..app.dependencies import get_scan_roots
 
-    return get_scan_roots()
+    roots = list(get_scan_roots())
+
+    from .cold_archive import resolve_archive_roots
+
+    for root in resolve_archive_roots():
+        value = str(root)
+        if value not in roots:
+            roots.append(value)
+    return roots
 
 
 async def delete_galleries_local(
@@ -228,8 +262,9 @@ async def delete_galleries_local(
 
     from sqlalchemy import select
 
-    from ..db.models import DuplicateRecord, Gallery
+    from ..db.models import Gallery
     from ..db.repositories.base import path_hash
+    from ..db.repositories.galleries_ingest import sync_storage_tier
     from ..db.repository import GalleryRepository, _chunked
 
     provided_session: AsyncSession | None = None
@@ -381,6 +416,19 @@ async def delete_galleries_local(
                         item["db_removed"] = True
                         item["trashed"] = False
                         item["staged"] = False
+                        # Hard delete without file removal (purge with
+                        # delete_files=false): the on-disk copies are kept but no
+                        # longer tracked by any row, so report them instead of
+                        # dropping the paths silently.
+                        if targets:
+                            orphan_paths = [str(t) for t in targets]
+                            item["orphan_paths"] = orphan_paths
+                            logger.warning(
+                                "gallery rows purged without deleting files; copies are now orphaned",
+                                extra=log_extra(
+                                    gallery_id=gallery_id, orphan_paths=orphan_paths
+                                ),
+                            )
             await sess.flush()
 
     # Phase 3: Perform disk I/O outside of the write transaction
@@ -453,23 +501,12 @@ async def delete_galleries_local(
                         item["db_removed"] = False
                         item["trashed"] = True
                         if delete_all_copies and deleted_paths and gid is not None:
-                            dup_row = await sess.get(DuplicateRecord, gid)
-                            if dup_row is not None:
-                                deleted_resolved = {Path(p).resolve() for p in deleted_paths}
-                                remaining_copies = [
-                                    c for c in (dup_row.copies or [])
-                                    if Path(str(c.get("path") or "")).resolve() not in deleted_resolved
-                                ]
-                                if not remaining_copies:
-                                    await sess.delete(dup_row)
-                                else:
-                                    dup_row.copies = remaining_copies
-                                    if (
-                                        dup_row.winner_path
-                                        and Path(dup_row.winner_path).resolve() in deleted_resolved
-                                    ):
-                                        dup_row.winner_path = str(remaining_copies[0].get("path") or "")
-                                    dup_row.updated_at = datetime.now(UTC)
+                            # T5.3: the multi-copy group lives in
+                            # ``duplicate_groups``; dropping the deleted copies
+                            # from its payload keeps the cleanup page honest.
+                            await remove_group_copies(
+                                sess, "same_gid", str(gid), deleted_paths
+                            )
 
                         if storage_path and gallery is not None:
                             gallery_resolved = Path(storage_path).resolve()
@@ -483,6 +520,9 @@ async def delete_galleries_local(
                                     new_path = surviving[0]
                                     gallery.storage_path = str(new_path)
                                     gallery.path_hash = path_hash(new_path)
+                                    # The surviving copy defines the tier again:
+                                    # a recovered pointer may leave the cold root.
+                                    sync_storage_tier(gallery, new_path)
                                     gallery.trashed = False
                                     gallery.trashed_at = None
                                     gallery.updated_at = datetime.now(UTC)
@@ -497,6 +537,7 @@ async def delete_galleries_local(
             "trashed": item["trashed"],
             "deleted_paths": item["deleted_paths"],
             "failed_paths": item["failed_paths"],
+            "orphan_paths": item.get("orphan_paths") or [],
         }
         for item in items_meta
     ]

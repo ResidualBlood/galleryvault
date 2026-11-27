@@ -1,0 +1,929 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GalleryVault design specimen</title>
+    <!-- The only stylesheet dependency: the real token file. -->
+    <link rel="stylesheet" href="../../src/styles/tokens.css" />
+    <style>
+      .page {
+        max-width: var(--gv-size-content-max);
+        margin: 0 auto;
+        padding: var(--gv-space-5) var(--gv-space-4) var(--gv-space-8);
+        display: grid;
+        gap: var(--gv-space-6);
+      }
+      .masthead {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        justify-content: space-between;
+        gap: var(--gv-space-3);
+        padding-bottom: var(--gv-space-4);
+        border-bottom: 1px solid var(--gv-color-outline-variant);
+      }
+      .masthead h1 {
+        font: var(--gv-type-headline-large);
+        letter-spacing: var(--gv-type-headline-large-tracking);
+        margin: 0;
+      }
+      .masthead p {
+        margin: var(--gv-space-1) 0 0;
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-body-medium);
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--gv-space-2);
+        padding: var(--gv-space-1) var(--gv-space-3);
+        border-radius: var(--gv-radius-full);
+        background: var(--gv-color-primary-container);
+        color: var(--gv-color-on-primary-container);
+        font: var(--gv-type-label-large);
+      }
+      section {
+        display: grid;
+        gap: var(--gv-space-3);
+      }
+      section > h2 {
+        margin: 0;
+        font: var(--gv-type-title-large);
+        letter-spacing: var(--gv-type-title-large-tracking);
+      }
+      section > p {
+        margin: 0;
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-body-medium);
+      }
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: var(--gv-space-2);
+      }
+      .swatch {
+        min-height: 72px;
+        padding: var(--gv-space-2) var(--gv-space-3);
+        border-radius: var(--gv-radius-sm);
+        border: 1px solid var(--gv-color-outline-variant);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: var(--gv-space-2);
+      }
+      .swatch b {
+        font: var(--gv-type-label-large);
+        letter-spacing: var(--gv-type-label-large-tracking);
+      }
+      .swatch small {
+        font: var(--gv-type-label-small);
+        letter-spacing: var(--gv-type-label-small-tracking);
+        opacity: 0.85;
+      }
+      .type-row {
+        display: grid;
+        grid-template-columns: 100px 1fr;
+        align-items: baseline;
+        gap: var(--gv-space-3);
+        padding: var(--gv-space-2) 0;
+        border-bottom: 1px solid var(--gv-color-outline-variant);
+      }
+      .type-row code {
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-label-small);
+        letter-spacing: var(--gv-type-label-small-tracking);
+      }
+      .type-row span {
+        overflow-wrap: anywhere;
+      }
+      .radius-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: var(--gv-space-3);
+      }
+      .radius-card {
+        display: grid;
+        gap: var(--gv-space-2);
+      }
+      .radius-box {
+        height: 72px;
+        background: var(--gv-color-surface-container-high);
+        border: 1px solid var(--gv-color-outline);
+      }
+      .radius-card small {
+        font: var(--gv-type-label-small);
+        color: var(--gv-color-on-surface-variant);
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: var(--gv-space-4);
+      }
+      .gcard {
+        overflow: hidden;
+        border-radius: var(--gv-radius-md);
+        background: var(--gv-color-surface-container);
+        border: 1px solid var(--gv-color-outline-variant);
+        box-shadow: var(--gv-elev-1);
+      }
+      .gcard__cover {
+        position: relative;
+        aspect-ratio: var(--gv-size-card-cover-aspect);
+        background:
+          radial-gradient(circle at 70% 20%, var(--gv-color-primary-container), transparent 55%),
+          linear-gradient(135deg, var(--gv-color-surface-container-highest), var(--gv-color-surface-dim));
+        display: grid;
+        place-items: center;
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-label-small);
+        letter-spacing: var(--gv-type-label-small-tracking);
+      }
+      .gcard__top {
+        position: absolute;
+        inset: var(--gv-space-2) var(--gv-space-2) auto;
+        display: flex;
+        justify-content: space-between;
+        gap: var(--gv-space-2);
+      }
+      .gcard__bottom {
+        position: absolute;
+        inset: auto var(--gv-space-2) var(--gv-space-2);
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+      }
+      .gcard__body {
+        padding: var(--gv-space-2) var(--gv-space-3) var(--gv-space-3);
+        display: grid;
+        gap: var(--gv-space-1);
+      }
+      .gcard__body strong {
+        font: var(--gv-type-title-small);
+        letter-spacing: var(--gv-type-title-small-tracking);
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        min-height: calc(var(--gv-type-title-small-line) * 2);
+      }
+      .gcard__body span {
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-body-small);
+        letter-spacing: var(--gv-type-body-small-tracking);
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 20px;
+        padding: 0 var(--gv-space-2);
+        border-radius: var(--gv-radius-xs);
+        background: var(--gv-color-secondary-container);
+        color: var(--gv-color-on-secondary-container);
+        font: var(--gv-type-label-small);
+        letter-spacing: var(--gv-type-label-small-tracking);
+        backdrop-filter: blur(4px);
+      }
+      .badge--primary {
+        background: var(--gv-color-primary);
+        color: var(--gv-color-on-primary);
+      }
+      .progress {
+        height: 4px;
+        border-radius: var(--gv-radius-full);
+        background: var(--gv-color-surface-variant);
+        overflow: hidden;
+      }
+      .progress > i {
+        display: block;
+        width: 62%;
+        height: 100%;
+        background: var(--gv-color-primary);
+      }
+      .online-list {
+        display: grid;
+        gap: var(--gv-space-3);
+      }
+      .online-card {
+        display: grid;
+        grid-template-columns: 104px minmax(0, 1fr);
+        gap: var(--gv-space-3);
+        padding: var(--gv-space-3);
+        border-radius: var(--gv-radius-md);
+        background: var(--gv-color-surface-container);
+        border: 1px solid var(--gv-color-outline-variant);
+      }
+      .online-card__cover {
+        position: relative;
+        aspect-ratio: var(--gv-size-card-cover-aspect);
+        border-radius: var(--gv-radius-sm);
+        background:
+          radial-gradient(circle at 30% 20%, var(--gv-color-tertiary-container), transparent 60%),
+          linear-gradient(160deg, var(--gv-color-surface-container-highest), var(--gv-color-surface-dim));
+        display: grid;
+        place-items: end start;
+        padding: var(--gv-space-1);
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-label-small);
+      }
+      .online-card__info {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gv-space-2);
+        min-width: 0;
+      }
+      .online-card__title {
+        margin: 0;
+        font: var(--gv-type-title-medium);
+        letter-spacing: var(--gv-type-title-medium-tracking);
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .online-card__uploader {
+        margin: 0;
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-body-small);
+      }
+      .online-card__meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--gv-space-2);
+        margin-top: auto;
+        font: var(--gv-type-label-large);
+        color: var(--gv-color-on-surface-variant);
+      }
+      .cat {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 var(--gv-space-2);
+        min-height: 20px;
+        border-radius: var(--gv-radius-xs);
+        background: var(--gv-cat-doujinshi);
+        color: var(--gv-cat-doujinshi-ink);
+        font: var(--gv-type-label-small);
+        letter-spacing: var(--gv-type-label-small-tracking);
+      }
+      .cat--manga {
+        background: var(--gv-cat-manga);
+        color: var(--gv-cat-manga-ink);
+      }
+      .cat--nonh {
+        background: var(--gv-cat-nonh);
+        color: var(--gv-cat-nonh-ink);
+      }
+      .heart {
+        color: var(--gv-favcat-3);
+        font-size: var(--gv-type-title-medium-size);
+        -webkit-text-stroke: 1px var(--gv-color-outline);
+        line-height: 1;
+      }
+      .stars {
+        color: var(--gv-color-warning);
+        letter-spacing: 2px;
+      }
+      .detail-head {
+        display: grid;
+        grid-template-columns: 176px minmax(0, 1fr);
+        gap: var(--gv-space-4);
+        padding: var(--gv-space-4);
+        border-radius: var(--gv-radius-lg);
+        background: var(--gv-color-surface-container);
+        border: 1px solid var(--gv-color-outline-variant);
+        box-shadow: var(--gv-elev-1);
+      }
+      .detail-head__cover {
+        aspect-ratio: var(--gv-size-card-cover-aspect);
+        border-radius: var(--gv-radius-sm);
+        background:
+          radial-gradient(circle at 60% 30%, var(--gv-color-primary-container), transparent 60%),
+          linear-gradient(150deg, var(--gv-color-surface-container-highest), var(--gv-color-surface-dim));
+        display: grid;
+        place-items: center;
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-label-medium);
+      }
+      .detail-head__body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gv-space-2);
+        min-width: 0;
+      }
+      .detail-head__body h3 {
+        margin: 0;
+        font: var(--gv-type-headline-small);
+        letter-spacing: var(--gv-type-headline-small-tracking);
+      }
+      .detail-head__body p {
+        margin: 0;
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-body-medium);
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--gv-space-2);
+        margin-top: var(--gv-space-2);
+      }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--gv-space-2);
+        min-height: 40px;
+        padding: 0 var(--gv-space-4);
+        border-radius: var(--gv-radius-full);
+        border: 1px solid transparent;
+        font: var(--gv-type-label-large);
+        letter-spacing: var(--gv-type-label-large-tracking);
+      }
+      .button--filled {
+        background: var(--gv-color-primary);
+        color: var(--gv-color-on-primary);
+      }
+      .button--tonal {
+        background: var(--gv-color-secondary-container);
+        color: var(--gv-color-on-secondary-container);
+      }
+      .button--outlined {
+        border-color: var(--gv-color-outline);
+        color: var(--gv-color-primary-text);
+        background: transparent;
+      }
+      .icon-button {
+        display: inline-grid;
+        place-items: center;
+        width: var(--gv-size-touch);
+        height: var(--gv-size-touch);
+        border-radius: var(--gv-radius-full);
+        border: 1px solid var(--gv-color-outline-variant);
+        background: var(--gv-color-surface-container-high);
+        color: var(--gv-color-on-surface);
+        font: var(--gv-type-title-medium);
+      }
+      .tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--gv-space-1);
+      }
+      .tag {
+        padding: 0 var(--gv-space-2);
+        min-height: 24px;
+        display: inline-flex;
+        align-items: center;
+        border-radius: var(--gv-radius-xs);
+        background: var(--gv-color-surface-variant);
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-label-medium);
+        letter-spacing: var(--gv-type-label-medium-tracking);
+      }
+      .tag b {
+        color: var(--gv-color-on-surface);
+        font-weight: 700;
+      }
+      .reader {
+        border-radius: var(--gv-radius-lg);
+        overflow: hidden;
+        border: 1px solid var(--gv-color-outline-variant);
+        background: var(--gv-color-reader-surface);
+        color: var(--gv-color-reader-on-surface);
+      }
+      .reader__bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--gv-space-3);
+        min-height: var(--gv-size-reader-bar);
+        padding: 0 var(--gv-space-3);
+        background: var(--gv-color-surface-container-high);
+        color: var(--gv-color-on-surface);
+        font: var(--gv-type-label-large);
+      }
+      .reader__stage {
+        display: grid;
+        place-items: center;
+        min-height: 230px;
+        background:
+          linear-gradient(var(--gv-color-reader-surface), var(--gv-color-reader-surface)) padding-box,
+          linear-gradient(120deg, var(--gv-color-surface-container-highest), var(--gv-color-reader-surface));
+        position: relative;
+      }
+      .reader__page {
+        width: min(150px, 46%);
+        aspect-ratio: var(--gv-size-card-cover-aspect);
+        border-radius: var(--gv-radius-xs);
+        background: linear-gradient(160deg, var(--gv-color-surface-bright), var(--gv-color-surface-variant));
+        box-shadow: var(--gv-elev-4);
+      }
+      .reader__zone {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        pointer-events: none;
+      }
+      .reader__zone span {
+        border-inline: 1px dashed var(--gv-color-outline);
+        opacity: 0.25;
+        display: grid;
+        place-items: center;
+        color: var(--gv-color-reader-on-surface);
+        font: var(--gv-type-label-small);
+      }
+      .reader__bottom {
+        display: flex;
+        align-items: center;
+        gap: var(--gv-space-2);
+        min-height: var(--gv-size-reader-bar);
+        padding: 0 var(--gv-space-3);
+        background: var(--gv-color-surface-container-high);
+        color: var(--gv-color-on-surface);
+      }
+      .reader__slider {
+        flex: 1;
+        height: 6px;
+        border-radius: var(--gv-radius-full);
+        background: var(--gv-color-surface-variant);
+        position: relative;
+      }
+      .reader__slider i {
+        position: absolute;
+        inset: 0 46% 0 0;
+        border-radius: var(--gv-radius-full);
+        background: var(--gv-color-primary);
+      }
+      .reader__slider b {
+        position: absolute;
+        top: 50%;
+        left: 54%;
+        width: 16px;
+        height: 16px;
+        border-radius: var(--gv-radius-full);
+        background: var(--gv-color-primary);
+        transform: translate(-50%, -50%);
+        box-shadow: var(--gv-elev-2);
+      }
+      .settings {
+        border-radius: var(--gv-radius-lg);
+        border: 1px solid var(--gv-color-outline-variant);
+        background: var(--gv-color-surface-container);
+        overflow: hidden;
+      }
+      .settings h4 {
+        margin: 0;
+        padding: var(--gv-space-3) var(--gv-space-4) var(--gv-space-1);
+        color: var(--gv-color-primary-text);
+        font: var(--gv-type-label-large);
+        letter-spacing: var(--gv-type-label-large-tracking);
+      }
+      .setting-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: var(--gv-space-4);
+        padding: var(--gv-space-3) var(--gv-space-4);
+        border-top: 1px solid var(--gv-color-outline-variant);
+      }
+      .setting-row:first-of-type {
+        border-top: 0;
+      }
+      .setting-row strong {
+        display: block;
+        font: var(--gv-type-body-large);
+        letter-spacing: var(--gv-type-body-large-tracking);
+      }
+      .setting-row small {
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-body-small);
+        letter-spacing: var(--gv-type-body-small-tracking);
+      }
+      .switch {
+        width: 52px;
+        height: 32px;
+        border-radius: var(--gv-radius-full);
+        background: var(--gv-color-primary);
+        position: relative;
+      }
+      .switch i {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 24px;
+        height: 24px;
+        border-radius: var(--gv-radius-full);
+        background: var(--gv-color-on-primary);
+      }
+      .switch--off {
+        background: var(--gv-color-surface-variant);
+      }
+      .switch--off i {
+        left: 4px;
+        right: auto;
+        background: var(--gv-color-outline);
+      }
+      .chev {
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-title-medium);
+      }
+      .field {
+        display: grid;
+        gap: var(--gv-space-1);
+      }
+      .field label {
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-label-large);
+      }
+      .input {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        padding: 0 var(--gv-space-3);
+        border-radius: var(--gv-radius-xs);
+        border: 1px solid var(--gv-color-outline);
+        background: var(--gv-color-surface-container-lowest);
+        color: var(--gv-color-on-surface);
+        font: var(--gv-type-body-large);
+      }
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: var(--gv-space-3);
+      }
+      .states {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: var(--gv-space-3);
+      }
+      .state-box {
+        padding: var(--gv-space-3);
+        border-radius: var(--gv-radius-md);
+        border: 1px solid var(--gv-color-outline-variant);
+        background: var(--gv-color-surface-container);
+        display: grid;
+        gap: var(--gv-space-1);
+      }
+      .state-box strong {
+        font: var(--gv-type-title-small);
+      }
+      .state-box span {
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-body-small);
+      }
+      .empty {
+        display: grid;
+        justify-items: center;
+        gap: var(--gv-space-2);
+        padding: var(--gv-space-6);
+        border-radius: var(--gv-radius-lg);
+        border: 1px dashed var(--gv-color-outline);
+        background: var(--gv-color-surface-container-low);
+        text-align: center;
+      }
+      .empty b {
+        font: var(--gv-type-title-medium);
+      }
+      .empty span {
+        color: var(--gv-color-on-surface-variant);
+        font: var(--gv-type-body-medium);
+      }
+      .skeleton {
+        height: 12px;
+        border-radius: var(--gv-radius-full);
+        background: linear-gradient(90deg, var(--gv-color-surface-variant), var(--gv-color-surface-container-highest), var(--gv-color-surface-variant));
+        background-size: 200% 100%;
+      }
+      @media (max-width: 839px) {
+        .detail-head {
+          grid-template-columns: 120px minmax(0, 1fr);
+        }
+      }
+      @media (max-width: 599px) {
+        .type-row {
+          grid-template-columns: 1fr;
+          gap: var(--gv-space-1);
+        }
+        .detail-head {
+          grid-template-columns: 1fr;
+        }
+        .detail-head__cover {
+          max-width: 180px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="masthead">
+        <div>
+          <h1>GalleryVault 设计样张</h1>
+          <p>Material 3 token 结构 · 暖金品牌 · 亮 / 暗双主题 · 本文件只依赖 src/styles/tokens.css</p>
+        </div>
+        <span class="pill">specimen.html</span>
+      </header>
+
+      <section>
+        <h2>颜色角色</h2>
+        <p>M3 color roles 的亮 / 暗两套值。实心块使用对应 on-* 文字，全部达到 4.5:1 以上。</p>
+        <div class="swatches">
+          <div class="swatch" style="background: var(--gv-color-primary); color: var(--gv-color-on-primary)">
+            <b>primary</b><small>on-primary</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-surface-container); color: var(--gv-color-primary-text)">
+            <b>primary-text</b><small>surface 上的主色文字</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-primary-container); color: var(--gv-color-on-primary-container)">
+            <b>primary-container</b><small>on-primary-container</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-secondary); color: var(--gv-color-on-secondary)">
+            <b>secondary</b><small>on-secondary</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-secondary-container); color: var(--gv-color-on-secondary-container)">
+            <b>secondary-container</b><small>on-secondary-container</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-tertiary); color: var(--gv-color-on-tertiary)">
+            <b>tertiary</b><small>on-tertiary</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-tertiary-container); color: var(--gv-color-on-tertiary-container)">
+            <b>tertiary-container</b><small>on-tertiary-container</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-error); color: var(--gv-color-on-error)">
+            <b>error</b><small>on-error</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-error-container); color: var(--gv-color-on-error-container)">
+            <b>error-container</b><small>on-error-container</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-surface); color: var(--gv-color-on-surface); border-color: var(--gv-color-outline)">
+            <b>surface</b><small>on-surface</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-surface-container); color: var(--gv-color-on-surface)">
+            <b>container</b><small>surface-container</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-surface-container-high); color: var(--gv-color-on-surface)">
+            <b>container-high</b><small>surface-container-high</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-surface-container-highest); color: var(--gv-color-on-surface)">
+            <b>container-highest</b><small>surface-container-highest</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-surface-variant); color: var(--gv-color-on-surface-variant)">
+            <b>surface-variant</b><small>on-surface-variant</small>
+          </div>
+          <div class="swatch" style="background: var(--gv-color-inverse-surface); color: var(--gv-color-inverse-on-surface)">
+            <b>inverse-surface</b><small>inverse-on-surface</small>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>字阶</h2>
+        <p>M3 type scale 子集；display / headline / title-large 用品牌字族，其余用正文字族。</p>
+        <div class="type-row"><code>display-large</code><span style="font: var(--gv-type-display-large)">图库 · GalleryVault</span></div>
+        <div class="type-row"><code>headline-small</code><span style="font: var(--gv-type-headline-small)">在线上画廊与本机库</span></div>
+        <div class="type-row"><code>title-large</code><span style="font: var(--gv-type-title-large)">收藏与下载</span></div>
+        <div class="type-row"><code>title-medium</code><span style="font: var(--gv-type-title-medium)">在线列表卡片标题 / 设置组标题</span></div>
+        <div class="type-row"><code>body-large</code><span style="font: var(--gv-type-body-large)">正文：画廊标题、说明文字与设置项描述。</span></div>
+        <div class="type-row"><code>body-medium</code><span style="font: var(--gv-type-body-medium)">次级正文：上传者、页数、评分与时间。</span></div>
+        <div class="type-row"><code>label-large</code><span style="font: var(--gv-type-label-large)">按钮 / 导航标签</span></div>
+        <div class="type-row"><code>label-small</code><span style="font: var(--gv-type-label-small)">角标 / 分类 chip</span></div>
+      </section>
+
+      <section>
+        <h2>圆角</h2>
+        <div class="radius-grid">
+          <div class="radius-card"><div class="radius-box" style="border-radius: var(--gv-radius-none)"></div><small>none · 0</small></div>
+          <div class="radius-card"><div class="radius-box" style="border-radius: var(--gv-radius-xs)"></div><small>xs · 4</small></div>
+          <div class="radius-card"><div class="radius-box" style="border-radius: var(--gv-radius-sm)"></div><small>sm · 8</small></div>
+          <div class="radius-card"><div class="radius-box" style="border-radius: var(--gv-radius-md)"></div><small>md · 12</small></div>
+          <div class="radius-card"><div class="radius-box" style="border-radius: var(--gv-radius-lg)"></div><small>lg · 16</small></div>
+          <div class="radius-card"><div class="radius-box" style="border-radius: var(--gv-radius-xl)"></div><small>xl · 28</small></div>
+          <div class="radius-card"><div class="radius-box" style="border-radius: var(--gv-radius-full)"></div><small>full · 9999</small></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>本机库网格卡片</h2>
+        <p>角标位：左上状态 / 右上格式 / 右下操作；仅未读完时显示 4px 进度条；标题固定两行高度。</p>
+        <div class="cards">
+          <article class="gcard">
+            <div class="gcard__cover">
+              <span>cover 3:4</span>
+              <div class="gcard__top"><span class="badge">CBZ</span><span class="badge badge--primary">新</span></div>
+              <div class="gcard__bottom"><span class="badge">未读</span><span class="badge">24 话</span></div>
+            </div>
+            <div class="gcard__body">
+              <strong>来自本机的系列标题，最多两行</strong>
+              <span>作者名 · 1.2 GB</span>
+              <div class="progress"><i></i></div>
+            </div>
+          </article>
+          <article class="gcard">
+            <div class="gcard__cover">
+              <span>cover 3:4</span>
+              <div class="gcard__top"><span class="badge">PDF</span></div>
+              <div class="gcard__bottom"><span class="badge badge--primary">61%</span></div>
+            </div>
+            <div class="gcard__body">
+              <strong>已读到一半的系列，进度条只在未读完时出现</strong>
+              <span>作者名 · 860 MB</span>
+              <div class="progress"><i style="width: 61%"></i></div>
+            </div>
+          </article>
+          <article class="gcard">
+            <div class="gcard__cover">
+              <span>cover 3:4</span>
+              <div class="gcard__top"><span class="badge">文件夹</span></div>
+              <div class="gcard__bottom"><span class="badge">已读完</span></div>
+            </div>
+            <div class="gcard__body">
+              <strong>已读完的系列不显示进度条，保持网格干净</strong>
+              <span>作者名 · 12 话</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>在线列表卡片</h2>
+        <p>JHenTai 信息层级：左封面右信息；标题两行 + 上传者；底行分类色块、收藏心形槽位色、语言、页数、半星评分与时间。</p>
+        <div class="online-list">
+          <article class="online-card">
+            <div class="online-card__cover"><span>cover</span></div>
+            <div class="online-card__info">
+              <h3 class="online-card__title">[同人志] 在线上画廊标题示例，最多显示两行，超出省略</h3>
+              <p class="online-card__uploader">uploader_name · 2026-11-12</p>
+              <div class="tags">
+                <span class="tag"><b>language:</b>chinese</span>
+                <span class="tag"><b>artist:</b>example</span>
+                <span class="tag"><b>female:</b>sole female</span>
+              </div>
+              <div class="online-card__meta">
+                <span class="cat">Doujinshi</span>
+                <span class="heart">♥</span>
+                <span>CH</span>
+                <span>32P</span>
+                <span class="stars">★★★★☆</span>
+                <span style="margin-left: auto">3 天前</span>
+              </div>
+            </div>
+          </article>
+          <article class="online-card">
+            <div class="online-card__cover"><span>cover</span></div>
+            <div class="online-card__info">
+              <h3 class="online-card__title">[Manga] 第二条在线结果，用于验证两行标题与长标签换行</h3>
+              <p class="online-card__uploader">another_uploader · 2026-11-10</p>
+              <div class="tags">
+                <span class="tag"><b>parody:</b>original</span>
+                <span class="tag"><b>male:</b>example</span>
+              </div>
+              <div class="online-card__meta">
+                <span class="cat cat--manga">Manga</span>
+                <span class="heart">♥</span>
+                <span>JP</span>
+                <span>18P</span>
+                <span class="stars">★★★☆☆</span>
+                <span style="margin-left: auto">1 周前</span>
+              </div>
+            </div>
+          </article>
+          <article class="online-card">
+            <div class="online-card__cover"><span>cover</span></div>
+            <div class="online-card__info">
+              <h3 class="online-card__title">[Non-H] 第三条结果，展示非 H 分类色与已读状态</h3>
+              <p class="online-card__uploader">uploader · 2026-11-01</p>
+              <div class="online-card__meta">
+                <span class="cat cat--nonh">Non-H</span>
+                <span class="heart" style="color: var(--gv-favcat-6)">♥</span>
+                <span>EN</span>
+                <span>44P</span>
+                <span class="stars">★★★★★</span>
+                <span style="margin-left: auto">2 周前</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>详情页头部</h2>
+        <p>封面 + 标题 + 上传者 + 数据行 → 操作行 → namespace 标签；窄屏改为单列。</p>
+        <div class="detail-head">
+          <div class="detail-head__cover">cover 3:4</div>
+          <div class="detail-head__body">
+            <h3>画廊标题：封面与信息并排，宽屏双列、窄屏单列</h3>
+            <p>uploader_name · 2026-11-12 10:24 · 32 页 · 128 MB</p>
+            <div class="tags">
+              <span class="tag"><b>language:</b>chinese</span>
+              <span class="tag"><b>artist:</b>example</span>
+              <span class="tag"><b>group:</b>circle</span>
+              <span class="tag"><b>female:</b>sole female</span>
+            </div>
+            <div class="actions">
+              <span class="button button--filled">开始阅读</span>
+              <span class="button button--tonal">收藏</span>
+              <span class="button button--tonal">下载</span>
+              <span class="button button--outlined">在 EH 打开</span>
+              <span class="icon-button" aria-label="更多">⋯</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>阅读器上下栏与点按分区</h2>
+        <p>顶部栏返回 + 标题 + 书签；底部栏首页 · 滑条 · 末页 · 设置；中区三等分点按，左右翻页、中间呼出上下栏。</p>
+        <div class="reader">
+          <div class="reader__bar">
+            <span>←</span>
+            <span>章节标题 · 12 / 32</span>
+            <span>☆</span>
+          </div>
+          <div class="reader__stage">
+            <div class="reader__page"></div>
+            <div class="reader__zone"><span>上一页</span><span>呼出菜单</span><span>下一页</span></div>
+          </div>
+          <div class="reader__bottom">
+            <span class="icon-button" style="width: 36px; height: 36px">⇤</span>
+            <div class="reader__slider"><i></i><b></b></div>
+            <span class="icon-button" style="width: 36px; height: 36px">⇥</span>
+            <span class="icon-button" style="width: 36px; height: 36px">⚙</span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>设置列表</h2>
+        <p>Mihon 式分组子页：组标题 + 左说明右控件；开关、选择行右侧带当前值与箭头。</p>
+        <div class="settings">
+          <h4>阅读</h4>
+          <div class="setting-row">
+            <div><strong>默认阅读模式</strong><small>分页 / 连续滚动 / 双页</small></div>
+            <span class="chev">分页 ›</span>
+          </div>
+          <div class="setting-row">
+            <div><strong>预载下一页</strong><small>在线阅读时提前加载 2 页</small></div>
+            <span class="switch"><i></i></span>
+          </div>
+          <div class="setting-row">
+            <div><strong>阅读器常亮</strong><small>仅在移动端生效</small></div>
+            <span class="switch switch--off"><i></i></span>
+          </div>
+          <h4>下载</h4>
+          <div class="setting-row">
+            <div><strong>并发下载数</strong><small>在线并发 ≤ 3</small></div>
+            <span class="chev">3 ›</span>
+          </div>
+          <div class="setting-row">
+            <div><strong>仅 Wi-Fi 下载</strong><small>避免移动网络流量</small></div>
+            <span class="switch"><i></i></span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>表单控件</h2>
+        <div class="form-grid">
+          <div class="field"><label for="s">搜索画廊</label><div class="input" id="s">标题、作者或标签</div></div>
+          <div class="field"><label for="o">排序</label><div class="input" id="o">最近更新 ›</div></div>
+        </div>
+        <div class="actions">
+          <span class="button button--filled">保存</span>
+          <span class="button button--tonal">测试连接</span>
+          <span class="button button--outlined">取消</span>
+          <span class="icon-button" aria-label="搜索">⌕</span>
+          <span class="icon-button" aria-label="刷新">↻</span>
+        </div>
+      </section>
+
+      <section>
+        <h2>状态层与反馈</h2>
+        <div class="states">
+          <div class="state-box"><strong>Hover · 8%</strong><span>按钮 / 卡片 / 列表行叠加 on-surface。</span></div>
+          <div class="state-box"><strong>Focus · 12%</strong><span>2px focus ring + 2px offset。</span></div>
+          <div class="state-box"><strong>Pressed · 12%</strong><span>按下时保持底色不变，只叠状态层。</span></div>
+          <div class="state-box"><strong>Disabled · 38%</strong><span>文字 38%，容器 12%。</span></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>空状态 / 错误 / 骨架屏</h2>
+        <div class="empty">
+          <b>这里还没有内容</b>
+          <span>换一个筛选条件，或先添加本机库。</span>
+          <span class="button button--filled">添加库</span>
+        </div>
+        <div class="state-box" style="border-color: var(--gv-color-error)">
+          <strong style="color: var(--gv-color-error)">加载失败</strong>
+          <span>网络或 EH 站点暂时不可用；错误色只用于图标与文案，不大面积铺红。</span>
+          <span class="button button--outlined" style="align-self: start">重试</span>
+        </div>
+        <div class="state-box" style="gap: var(--gv-space-2)">
+          <div class="skeleton" style="width: 42%"></div>
+          <div class="skeleton" style="width: 78%"></div>
+          <div class="skeleton" style="width: 64%"></div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

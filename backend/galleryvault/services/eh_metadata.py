@@ -13,12 +13,14 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..app.state import app_state
 from ..db.models import Gallery, GalleryMetadata
 from ..db.repositories.galleries import GalleryRepository
+from ..db.session import release_session, safe_transaction
 from ..logging import log_extra
 from .eh_client import EhChallengeError, EhClient, EhClientError, GalleryGoneError
 
@@ -28,6 +30,40 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 EXHENTAI_API_CHUNK_SIZE = 25
+
+
+def _explicit_transaction_context(session: Any) -> bool:
+    """Whether the caller owns an ``async with session.begin():`` block.
+
+    Releasing the connection inside such a block closes the transaction the
+    context manager still owns; a later ``session.begin()`` then raises
+    ``InvalidRequestError: Can't operate on closed transaction inside context
+    manager``.  Out-of-scope callers that still use that shape keep the previous
+    behaviour (connection held across the network) instead of crashing.
+    """
+    sync_session = getattr(session, "sync_session", session)
+    return getattr(sync_session, "_trans_context_manager", None) is not None
+
+
+def _live_instance_count(session: Any) -> int:
+    """Loaded ORM instances the caller could still use after a rollback.
+
+    A rollback expires every loaded instance.  Callers such as the maintenance
+    script keep using live instances after ``refresh_gdata``, so they must not
+    be released here (they keep the pre-T6.1 behaviour).  Instances that are
+    already expired (e.g. after a previous release) are ignored, because the
+    caller has already copied out the values it needs.
+    """
+    identity_map = getattr(session, "identity_map", None)
+    if identity_map is None:
+        return 0
+    try:
+        return sum(1 for obj in identity_map.values() if not sa_inspect(obj).expired)
+    except Exception:  # noqa: BLE001
+        try:
+            return len(identity_map)
+        except TypeError:
+            return 0
 
 
 def is_metadata_complete(meta: dict[str, Any] | None) -> bool:
@@ -60,6 +96,7 @@ async def refresh_gdata(
     if not pairs:
         return {}
 
+    caller_instances = _live_instance_count(session)
     repo = GalleryRepository(session)
     gids = [int(gid) for gid, _ in pairs]
     cached = await repo.metadata_map(gids)
@@ -80,6 +117,16 @@ async def refresh_gdata(
     if active_client is None or not hasattr(active_client, "fetch_gmetadata"):
         return cached
 
+    # Read phase finished (cached metadata + missing list above are plain
+    # values): hand the pooled connection back before the gdata network loop.
+    # Two caller shapes cannot be released safely and keep old behaviour:
+    #   * an explicit ``session.begin()`` context (closed-transaction error),
+    #   * sessions with ORM instances already loaded before this call (rollback
+    #     would expire objects the caller still uses, e.g. the repair script).
+    can_release = not _explicit_transaction_context(session) and caller_instances == 0
+    if can_release:
+        await release_session(session)
+
     fetched: dict[int, dict[str, Any]] = {}
     for start in range(0, len(missing), batch_size):
         chunk = missing[start : start + batch_size]
@@ -94,9 +141,17 @@ async def refresh_gdata(
 
     if fetched:
         entries = [{"gid": gid, **meta} for gid, meta in fetched.items()]
-        await repo.upsert_metadata(entries)
-        # Reload fully formatted metadata rows from repository
-        refreshed = await repo.metadata_map(list(fetched.keys()))
+        if not can_release:
+            # Caller's transaction is still open and will commit/rollback it.
+            await repo.upsert_metadata(entries)
+            refreshed = await repo.metadata_map(list(fetched.keys()))
+        else:
+            # The pre-network release ended the caller's read transaction, so
+            # the network results are persisted in a fresh short transaction.
+            async with safe_transaction(session):
+                await repo.upsert_metadata(entries)
+                # Reload fully formatted metadata rows from repository
+                refreshed = await repo.metadata_map(list(fetched.keys()))
         cached.update(refreshed)
 
     return cached
@@ -149,7 +204,8 @@ async def enrich_html_newer(
                 },
             )
         )
-        await session.execute(stmt)
+        async with safe_transaction(session):
+            await session.execute(stmt)
         return replaced
     except GalleryGoneError:
         now = datetime.now(UTC)
@@ -170,7 +226,8 @@ async def enrich_html_newer(
                 },
             )
         )
-        await session.execute(stmt)
+        async with safe_transaction(session):
+            await session.execute(stmt)
         return None
     except (EhChallengeError, EhClientError) as exc:
         logger.warning(

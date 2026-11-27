@@ -1,0 +1,47 @@
+{
+  "quota": {
+    "cached": "cached",
+    "error": "Quota unavailable",
+    "near": "Image limit {current}/{limit} — nearing the cap"
+  },
+  "poll": {
+    "hidden": "Refresh pauses while this page is hidden"
+  },
+  "progress": {
+    "speed": "Speed",
+    "eta": "ETA",
+    "enumerating": "Reading page count…",
+    "retryCount": "Retry {n}"
+  },
+  "batch": {
+    "summary": "Queued {queued} · skipped {skipped} · gone {gone} · failed {failed}",
+    "empty": "No gallery links recognised",
+    "archiveTier": "Archive quality"
+  },
+  "page": {
+    "selectTask": "Select task {title}",
+    "confirmDelete": "Delete download task #{id}? Files already downloaded are kept.",
+    "confirmDeleteSelected": "Delete the {n} selected download tasks? Files already downloaded are kept.",
+    "deletedCount": "Deleted {n} task(s)",
+    "retriedCount": "Retried {n} task(s)",
+    "pauseFailed": "Could not change the pause state",
+    "statusLabel": "Task status",
+    "more": "More actions",
+    "selected": "{n} selected",
+    "shown": "Showing {shown} of {total}",
+    "expand": "Expand the add panel",
+    "collapse": "Collapse the add panel",
+    "open": "Open"
+  },
+  "ingest": {
+    "pending": "Ingesting",
+    "failed": "Ingest failed",
+    "retry": "Retry ingest",
+    "retrying": "Re-ingesting",
+    "retryQueued": "re-ingest queued"
+  },
+  "cancel": {
+    "finished": "The task has already finished and cannot be cancelled.",
+    "finishedStatus": "The task has already finished ({status}) and cannot be cancelled."
+  }
+}

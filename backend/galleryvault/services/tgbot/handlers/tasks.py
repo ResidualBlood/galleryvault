@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from galleryvault.app.dependencies import get_task_manager
-from galleryvault.app.routers.tasks import cancel_background_task
 from galleryvault.services.messages import (
     bot_kill_result,
     bot_kill_usage,
@@ -13,6 +12,7 @@ from galleryvault.services.messages import (
     bot_text,
     esc,
 )
+from galleryvault.services.tasks import cancel_background_task
 from galleryvault.services.tgbot.context import BotContext
 from galleryvault.services.tgbot.keyboards import inline_button, inline_keyboard
 from galleryvault.services.tgbot.router import CommandRouter

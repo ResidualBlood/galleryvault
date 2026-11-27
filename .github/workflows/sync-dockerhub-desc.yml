@@ -8,7 +8,7 @@ on:
     branches: [main]
     paths:
       - README.md
-      - frontend/assets/icon.svg
+      - frontend/public/icon.svg
       - docs/screenshots/**
       - scripts/readme-for-dockerhub.py
       - .github/workflows/sync-dockerhub-desc.yml

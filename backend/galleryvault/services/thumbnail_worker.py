@@ -21,7 +21,13 @@ from ..logging import bind_log_context, log_extra
 from ..scanners import registry
 from ..scanners.base import GalleryMeta, PageInfo
 from .storage_usage import safe_stat_size, storage_tracker
-from .tag_sync_worker import claim_jobs, complete_job, jobs_count, requeue_job
+from .tag_sync_worker import (
+    claim_jobs,
+    complete_job,
+    finalize_cancelled_run,
+    jobs_count,
+    requeue_job,
+)
 from .thumbnails import ThumbnailError, ThumbnailService
 
 logger = logging.getLogger(__name__)
@@ -99,6 +105,15 @@ async def thumbnail_gallery(gallery_id: int) -> tuple[int, int]:
             )
         )
     service = _thumb_service()
+    if not pages:
+        # page_count says the gallery has pages but the gallery_pages rows are
+        # missing (legacy databases). Nothing can be generated, so skip instead
+        # of succeeding on an empty loop and being re-seeded every hour.
+        logger.debug(
+            "thumbnail gallery has no page rows; skipping",
+            extra=log_extra(gallery_id=gallery_id, page_count=row.page_count),
+        )
+        return 0, 0
     if not row.storage_path:
         return 0, 0
     scanner = registry.for_path(Path(row.storage_path))
@@ -137,6 +152,19 @@ async def thumbnail_gallery(gallery_id: int) -> tuple[int, int]:
     return generated, failed_pages
 
 
+async def _galleries_with_page_rows(session: Any, gallery_ids: list[int]) -> set[int]:
+    """Return the subset of ``gallery_ids`` that have at least one gallery_pages row."""
+    if not gallery_ids:
+        return set()
+    rows = await session.scalars(
+        select(GalleryPage.gallery_id)
+        .where(GalleryPage.gallery_id.in_(gallery_ids))
+        .distinct()
+    )
+    wanted = {int(gid) for gid in gallery_ids}
+    return {int(gid) for gid in rows} & wanted
+
+
 async def seed_thumbnails() -> None:
     session_factory = _get_background_session_factory()
     if not session_factory:
@@ -160,21 +188,39 @@ async def seed_thumbnails() -> None:
             missing.extend(await asyncio.to_thread(_check_missing, chunk))
             await asyncio.sleep(0.01)
 
-        missing_total = len(missing)
         added = 0
+        pending_total = 0
+        skipped_without_pages = 0
         for start in range(0, len(missing), 500):
+            chunk = missing[start : start + 500]
+            async with session_factory() as session:
+                with_pages = await _galleries_with_page_rows(session, chunk)
+            chunk_with_pages = [gid for gid in chunk if gid in with_pages]
+            skipped_without_pages += len(chunk) - len(chunk_with_pages)
+            pending_total += len(chunk_with_pages)
+            if not chunk_with_pages:
+                continue
             async with session_factory() as session, session.begin():
                 added += await BackgroundJobsRepository(session).enqueue_many(
-                    JOB_THUMB, missing[start : start + 500]
+                    JOB_THUMB, chunk_with_pages
                 )
+        if skipped_without_pages:
+            # gallery_pages rows are missing, so a job would only spin on an empty
+            # page list and be re-seeded every hour. Log once per seed run instead.
+            logger.debug(
+                "thumbnail seeding skipped galleries without page rows",
+                extra=log_extra(galleries=skipped_without_pages),
+            )
         tm = app_state.task_manager
         thumb_state = tm.thumb_state if tm else {}
-        thumb_state["total"] = missing_total
+        thumb_state["total"] = pending_total
         thumb_state["queued"] = await jobs_count(JOB_THUMB)
         if added:
             thumb_state["running"] = True
             thumb_state["completed_at"] = None
-        logger.info("thumbnail seeding complete", extra=log_extra(queued=added, pending=missing_total))
+        logger.info(
+            "thumbnail seeding complete", extra=log_extra(queued=added, pending=pending_total)
+        )
 
 
 async def thumbnail_worker_loop() -> None:
@@ -197,7 +243,13 @@ async def thumbnail_worker_loop() -> None:
     async def _worker() -> None:
         while True:
             if tm and tm.is_cancelled("thumbs"):
-                break
+                # Finish this run as cancelled, then keep polling: only shutdown
+                # (CancelledError) may stop the resident worker.
+                finalize_cancelled_run(tm, thumb_state, "thumbs")
+                tm.clear_cancelled("thumbs")
+                last_activity[0] = _time.monotonic()
+                await asyncio.sleep(_THUMB_POLL_INTERVAL)
+                continue
             claimed = await claim_jobs(JOB_THUMB, 1)
             if not claimed:
                 if (
@@ -219,9 +271,6 @@ async def thumbnail_worker_loop() -> None:
                                 done=int(thumb_state.get("processed") or 0),
                                 total=int(thumb_state.get("total") or 0),
                             )
-                            from ..app.dependencies import spawn_task
-
-                            spawn_task(tm.persist_history(), "persist task history")
                 await asyncio.sleep(_THUMB_POLL_INTERVAL)
                 continue
 

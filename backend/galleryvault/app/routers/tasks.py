@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import get_settings
+from ...db.repositories.settings import patch_settings
 from ...db.repository import BackgroundJobsRepository, GalleryRepository, SettingsRepository
 from ...db.session import safe_transaction
-from ...services.cold_archive import run_cold_archive
+from ...services import quota as quota_service
+from ...services import tasks as tasks_service
+from ...services.cold_archive import run_cold_archive, run_unarchive
 from ...services.scan_worker import run_scan
 from ...services.settings_service import update_runtime_settings
 from ...services.tag_sync_worker import category_refresh_once, enqueue_tag_sync, jobs_count
@@ -20,6 +25,33 @@ from ..schemas import QuotaResponse
 from ..state import app_state
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+# Guard so repeated /api/tag-sync/start clicks do not run concurrent seed passes.
+_tag_sync_seed_state: dict[str, bool] = {"running": False}
+
+
+_TASK_STATE_ATTRS = {
+    "scan": "scan_state",
+    "archive": "archive_state",
+    "unarchive": "unarchive_state",
+}
+
+
+def _begin_task(tm: object, name: str, *, cancellable: bool = False) -> None:
+    """Use the manager lifecycle method, tolerating legacy test doubles.
+
+    Production always has ``TaskManager.begin_task``; a few router unit tests
+    pass a minimal fake that only exposes the state dict.
+    """
+    begin = getattr(tm, "begin_task", None)
+    if callable(begin):
+        begin(name, cancellable=cancellable)
+        return
+    state = getattr(tm, _TASK_STATE_ATTRS[name], None)
+    if isinstance(state, dict):
+        state["running"] = True
 
 
 async def _clear_jobs(job_type: str) -> None:
@@ -55,9 +87,7 @@ async def set_pause(
     update_runtime_settings({"global_paused": paused})
     try:
         async with safe_transaction(session):
-            existing = await SettingsRepository(session).get()
-            merged = {**existing, "global_paused": paused}
-            await SettingsRepository(session).save(merged)
+            await patch_settings(SettingsRepository(session), {"global_paused": paused})
     except Exception as exc:
         from ..dependencies import db_error
 
@@ -73,151 +103,10 @@ async def set_pause(
     return {"paused": paused}
 
 
-_GP_CACHE_TTL = 1800  # 30 min, same as cookie probe
-_IL_FAIL_TTL = 60  # retry Image Limit sooner than GP after a fetch error
-_GP_LOCK = None
-
-
-def _get_gp_lock():
-    global _GP_LOCK
-    if _GP_LOCK is None:
-        import asyncio
-
-        _GP_LOCK = asyncio.Lock()
-    return _GP_LOCK
-
-
 @router.get("/api/quota", response_model=QuotaResponse)
 async def get_quota() -> dict[str, object]:
-    """Cached GP balance + Image Limits (low-frequency, 30 min TTL)."""
-    from datetime import UTC, datetime
-
-    settings = app_state.settings or get_settings()
-    cache = app_state.extra.get("gp_cache") if isinstance(app_state.extra.get("gp_cache"), dict) else {}
-    now = datetime.now(UTC)
-    if cache.get("gp_checked_at") is None and cache.get("checked_at"):
-        cache["gp_checked_at"] = cache["checked_at"]
-        cache["il_checked_at"] = cache.get("il_checked_at") or cache["checked_at"]
-
-    def _age(key: str) -> float | None:
-        checked = cache.get(key)
-        if not checked:
-            return None
-        try:
-            return (now - datetime.fromisoformat(str(checked))).total_seconds()
-        except Exception:  # noqa: BLE001
-            return None
-
-    def _il_is_fresh(age: float | None, err: object) -> bool:
-        if age is None:
-            return False
-        return age <= (_IL_FAIL_TTL if err else _GP_CACHE_TTL)
-
-    gp_age = _age("gp_checked_at")
-    il_age = _age("il_checked_at")
-    gp_fresh = gp_age is not None and gp_age <= _GP_CACHE_TTL and cache.get("balance") is not None
-    il_fresh = _il_is_fresh(il_age, cache.get("il_error"))
-    if gp_fresh and il_fresh:
-        return {
-            "gp": cache.get("balance"),
-            "image_limit": cache.get("image_limit"),
-            "image_limits": cache.get("image_limit"),
-            "checked_at": cache.get("gp_checked_at") or cache.get("checked_at"),
-            "error": cache.get("error"),
-            "cached": True,
-        }
-    lock = _get_gp_lock()
-    if lock.locked():
-        return {
-            "gp": cache.get("balance"),
-            "image_limit": cache.get("image_limit"),
-            "image_limits": cache.get("image_limit"),
-            "checked_at": cache.get("gp_checked_at") or cache.get("checked_at"),
-            "error": cache.get("error"),
-            "cached": True,
-            "refreshing": True,
-        }
-    async with lock:
-        cache = app_state.extra.get("gp_cache", {}) if isinstance(app_state.extra.get("gp_cache"), dict) else {}
-        if cache.get("gp_checked_at") is None and cache.get("checked_at"):
-            cache["gp_checked_at"] = cache["checked_at"]
-            cache["il_checked_at"] = cache.get("il_checked_at") or cache["checked_at"]
-        gp_age = _age("gp_checked_at")
-        il_age = _age("il_checked_at")
-        gp_fresh = gp_age is not None and gp_age <= _GP_CACHE_TTL and cache.get("balance") is not None
-        il_fresh = _il_is_fresh(il_age, cache.get("il_error"))
-        if gp_fresh and il_fresh:
-            return {
-                "gp": cache["balance"],
-                "image_limit": cache.get("image_limit"),
-                "image_limits": cache.get("image_limit"),
-                "checked_at": cache.get("gp_checked_at"),
-                "error": cache.get("error"),
-                "cached": True,
-            }
-        balance = cache.get("balance")
-        image_limit = cache.get("image_limit")
-        error = cache.get("error")
-        gp_checked_at = cache.get("gp_checked_at")
-        il_checked_at = cache.get("il_checked_at")
-        il_error = bool(cache.get("il_error"))
-        stamp = datetime.now(UTC).isoformat()
-
-        async def _load_image_limit(c: object) -> None:
-            nonlocal image_limit, il_checked_at, il_error
-            try:
-                fetched = await c.fetch_image_limits()
-            except Exception:  # noqa: BLE001
-                il_checked_at = stamp
-                il_error = True
-                return
-            il_checked_at = stamp
-            if fetched:
-                image_limit = fetched
-                il_error = False
-            else:
-                il_error = True
-
-        try:
-            client = app_state.eh_client
-            if client is None:
-                from ...services.eh_client import EhClient
-
-                async with EhClient(settings, max_concurrency=settings.exhentai_max_concurrency) as tmp:
-                    if not gp_fresh:
-                        balance = await tmp.fetch_gp_balance()
-                        gp_checked_at = stamp
-                    if not il_fresh:
-                        await _load_image_limit(tmp)
-            else:
-                if not gp_fresh:
-                    balance = await client.fetch_gp_balance()
-                    gp_checked_at = stamp
-                if not il_fresh:
-                    await _load_image_limit(client)
-            error = None
-        except Exception as exc:  # noqa: BLE001
-            error = type(exc).__name__ + ": " + str(exc)[:120]
-            if not gp_fresh:
-                balance = cache.get("balance")
-        new_cache = {
-            "balance": balance,
-            "image_limit": image_limit,
-            "gp_checked_at": gp_checked_at,
-            "il_checked_at": il_checked_at,
-            "il_error": il_error,
-            "checked_at": gp_checked_at or il_checked_at or stamp,
-            "error": error,
-        }
-        app_state.extra["gp_cache"] = new_cache
-        return {
-            "gp": balance,
-            "image_limit": image_limit,
-            "image_limits": image_limit,
-            "checked_at": new_cache["checked_at"],
-            "error": error,
-            "cached": False,
-        }
+    """Cached GP balance + Image Limits (thin wrapper over ``services.quota``)."""
+    return await quota_service.get_quota()
 
 
 @router.post("/api/scan", status_code=202)
@@ -227,7 +116,7 @@ async def trigger_scan() -> dict[str, object]:
         return {"status": "paused", "detail": "Global paused: scan is disabled"}
     tm = get_task_manager()
     if not tm.scan_state["running"]:
-        tm.scan_state["running"] = True
+        _begin_task(tm, "scan", cancellable=True)
         spawn_task(run_scan(), "library scan")
     return {"status": "running" if tm.scan_state["running"] else "started"}
 
@@ -242,34 +131,47 @@ async def scan_status() -> dict[str, object]:
 async def background_task_logs() -> dict[str, object]:
     """Aggregate live background tasks and the recent activity log."""
     tm = get_task_manager()
-    return {"running": tm.get_running_summary(), "finished": list(tm.task_history)}
+    finished = await tm.history_records()
+    return {"running": tm.get_running_summary(), "finished": finished}
 
 
 @router.post("/api/logs/{task}/cancel", status_code=202)
 async def cancel_background_task(task: str) -> dict[str, object]:
-    task_key = "metadata" if task in {"metadata", "metadata-sync"} else task
-    if task_key not in {"scan", "tag-sync", "thumbs", "metadata", "archive"}:
-        raise HTTPException(status_code=404, detail="Unknown task")
-    tm = get_task_manager()
-    tm.request_cancel(task_key)
-    if task_key == "scan":
-        if isinstance(getattr(app_state, "scan_state", None), dict):
-            app_state.scan_state["status"] = "cancelling"
-            app_state.scan_state["running"] = False
-        if hasattr(tm, "scan_state") and isinstance(tm.scan_state, dict):
-            tm.scan_state["status"] = "cancelling"
-            tm.scan_state["running"] = False
-    elif task_key == "tag-sync":
-        await _clear_jobs("tag-sync")
-    elif task_key == "thumbs":
-        await _clear_jobs("thumbs")
-    return {"task": task_key, "status": "cancelling"}
+    """Thin wrapper over ``services.tasks.cancel_background_task``."""
+    return await tasks_service.cancel_background_task(
+        task,
+        manager=get_task_manager(),
+        clear_jobs=_clear_jobs,
+        tag_sync_seeding=_tag_sync_seed_state["running"],
+    )
 
 
 @router.get("/api/archive")
 async def archive_status() -> dict[str, object]:
     tm = get_task_manager()
     return dict(tm.archive_state)
+
+
+class ArchiveRestoreRequest(BaseModel):
+    ids: list[int] = Field(default_factory=list)
+
+
+@router.post("/api/archive/restore", status_code=202)
+async def restore_archive(body: ArchiveRestoreRequest) -> dict[str, object]:
+    """Move the given cold galleries back to the download root."""
+    ids = list(dict.fromkeys(int(gid) for gid in body.ids if int(gid) > 0))
+    if not ids:
+        raise HTTPException(status_code=422, detail="ids is required")
+    settings = app_state.settings or get_settings()
+    if getattr(settings, "global_paused", False):
+        return {"status": "paused", "detail": "Global paused: unarchive is disabled"}
+    tm = get_task_manager()
+    if tm.unarchive_state.get("running"):
+        return {"status": "running", "total": len(ids)}
+    tm.clear_cancelled("unarchive")
+    _begin_task(tm, "unarchive", cancellable=True)
+    spawn_task(run_unarchive(ids), "cold unarchive")
+    return {"status": "started", "total": len(ids)}
 
 
 @router.post("/api/archive", status_code=202)
@@ -284,7 +186,7 @@ async def trigger_archive() -> dict[str, object]:
     if tm.archive_state.get("running"):
         return {"status": "running"}
     tm.clear_cancelled("archive")
-    tm.archive_state["running"] = True
+    _begin_task(tm, "archive", cancellable=True)
     spawn_task(run_cold_archive(), "cold archive")
     return {"status": "started"}
 
@@ -326,20 +228,26 @@ async def thumb_status() -> dict[str, object]:
 async def trigger_thumbnail_generation() -> dict[str, object]:
     """Queue every gallery missing thumbnails for background generation."""
     tm = get_task_manager()
+    # A previous run may have been cancelled and left its marker behind.
+    tm.clear_cancelled("thumbs")
     if tm.thumb_state.get("seeding"):
         return {"status": "running", "message": "Thumbnail seeding already in progress"}
     tm.thumb_state["seeding"] = True
+    # Thumbs are driven by the job queue, so open the ledger row here; the
+    # worker (or the empty-seed branch below) closes it with ``record_task``.
+    await tm.begin_persisted_task("thumbs", cancellable=True)
 
     async def _run_seed() -> None:
         try:
             await seed_thumbnails()
             queued = await jobs_count("thumb")
-            tm.thumb_state["running"] = bool(queued)
-            if queued == 0 and not tm.thumb_state.get("started_at"):
+            tm.set_task_running("thumbs", bool(queued))
+            if queued == 0 and not tm.thumb_state.get("history_recorded"):
                 now = datetime.now(UTC).isoformat()
                 tm.record_task(
                     "thumbs", now, now, "success", reason="ok 0 / fail 0", done=0, total=0
                 )
+                tm.thumb_state["history_recorded"] = True
         finally:
             tm.thumb_state["seeding"] = False
 
@@ -347,35 +255,65 @@ async def trigger_thumbnail_generation() -> dict[str, object]:
     return {"status": "started"}
 
 
-@router.post("/api/tag-sync/start", status_code=202)
-async def trigger_tag_sync(
-    session: AsyncSession = Depends(get_session),  # noqa: B008
-) -> dict[str, object]:
-    """Re-queue every gallery that still needs tag sync (manual full run)."""
-    session = await resolve_session(session, fallback_dep=get_session)
-    tm = get_task_manager()
-    last_id = 0
-    seeded = 0
-    while True:
-        ids = await GalleryRepository(session).pending_tag_sync_ids(1000, last_id)
-        if not ids:
-            break
-        await enqueue_tag_sync(ids)
-        seeded += len(ids)
-        last_id = ids[-1]
+async def _seed_pending_tag_sync() -> None:
+    """Queue every pending tag-sync id in the background.
 
-    if seeded == 0 and not tm.tag_sync_state.get("running"):
-        now = datetime.now(UTC).isoformat()
+    The full table walk used to run inside the HTTP request and could take
+    minutes on a large library; it now runs as a background task so the
+    endpoint returns immediately.
+    """
+    session_factory = app_state.session_factory
+    if session_factory is None:
+        _tag_sync_seed_state["running"] = False
+        return
+    started_at = datetime.now(UTC).isoformat()
+    seeded = 0
+    status = "success"
+    reason = ""
+    try:
+        last_id = 0
+        while True:
+            async with session_factory() as session:
+                ids = await GalleryRepository(session).pending_tag_sync_ids(1000, last_id)
+            if not ids:
+                break
+            await enqueue_tag_sync(ids)
+            seeded += len(ids)
+            last_id = ids[-1]
+        reason = f"queued {seeded} pending galleries"
+    except Exception as exc:
+        status = "failed"
+        reason = f"tag sync seeding failed: {type(exc).__name__}"
+        raise
+    finally:
+        _tag_sync_seed_state["running"] = False
+        completed_at = datetime.now(UTC).isoformat()
+        tm = get_task_manager()
         tm.record_task(
             "tag-sync",
-            now,
-            now,
-            "success",
-            reason=(
-                f"ok {tm.tag_sync_state.get('succeeded', 0)} "
-                f"/ fail {tm.tag_sync_state.get('failed', 0)}"
-            ),
-            done=int(tm.tag_sync_state.get("processed") or 0),
-            total=int(tm.tag_sync_state.get("total") or 0),
+            started_at,
+            completed_at,
+            status,
+            reason=reason,
+            done=0,
+            total=0,
         )
-    return {"status": "started", "queued": seeded}
+
+
+@router.post("/api/tag-sync/start", status_code=202)
+async def trigger_tag_sync() -> dict[str, object]:
+    """Re-queue every gallery that still needs tag sync (manual full run)."""
+    tm = get_task_manager()
+    # A previous run may have been cancelled and left its marker behind.
+    tm.clear_cancelled("tag-sync")
+    settings = app_state.settings or get_settings()
+    if getattr(settings, "global_paused", False):
+        return {"status": "paused", "detail": "Global paused: tag sync is disabled"}
+    if _tag_sync_seed_state["running"]:
+        raise HTTPException(status_code=409, detail="tag sync seeding already running")
+    _tag_sync_seed_state["running"] = True
+    task = spawn_task(_seed_pending_tag_sync(), "tag sync seeding")
+    if task is None:
+        _tag_sync_seed_state["running"] = False
+        raise HTTPException(status_code=503, detail="background tasks unavailable")
+    return {"status": "started", "queued": 0}

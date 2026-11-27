@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quick actions harness</title>
+    <style>
+      body {
+        margin: 0;
+      }
+      .harness {
+        min-height: 100vh;
+        padding: 32px;
+        background: var(--gv-color-surface);
+        color: var(--gv-color-on-surface);
+      }
+      .gallery-card {
+        display: flex;
+        align-items: flex-end;
+        justify-content: flex-end;
+        width: 340px;
+        height: 180px;
+        padding: 12px;
+        border-radius: var(--gv-radius-md);
+        background: var(--gv-color-surface-container);
+        box-shadow: var(--gv-elev-1);
+      }
+      .gallery-card--wide {
+        width: 560px;
+        height: 240px;
+      }
+      @media (max-width: 599px) {
+        .harness {
+          padding: 16px;
+        }
+        .gallery-card,
+        .gallery-card--wide {
+          width: 100%;
+          max-width: 560px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./harness.ts"></script>
+  </body>
+</html>

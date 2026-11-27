@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sample Gallery - E-Hentai Galleries</title>
+    <!--
+      Sanitized sample of an E-Hentai gallery page, trimmed for the companion
+      userscript E2E. Only the DOM nodes the script reads (#gn, #gd5) and the
+      surrounding details layout are kept. No cookies, no account data.
+    -->
+    <style>
+      body {
+        margin: 0;
+        padding: 12px;
+        background: #eef1f5;
+        color: #333;
+        font: 13px/1.45 Arial, Helvetica, sans-serif;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+      #gdd {
+        padding: 8px;
+        background: #fff;
+        border: 1px solid #ccc;
+      }
+      #gdd > div {
+        padding: 3px 0;
+      }
+      #gd5 {
+        padding: 6px 0;
+      }
+      @media (prefers-color-scheme: dark) {
+        body {
+          background: #101418;
+          color: #ddd;
+        }
+        #gdd {
+          background: #1b2127;
+          border-color: #333c45;
+        }
+        a {
+          color: #8ab4f8;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="gn">Sample Gallery Title (sanitized fixture)</h1>
+    <div id="gdd">
+      <div id="gd1"><strong>Category:</strong> Doujinshi</div>
+      <div id="gd2"><strong>Pages:</strong> 24</div>
+      <div id="gd3"><strong>Posted:</strong> 2024-01-01 00:00</div>
+      <div id="gd4">Favorited: Never</div>
+      <div id="gd5"><a href="/archiver.php?gid=1526342&amp;token=0123abcd45">Download</a></div>
+    </div>
+    <p>Sanitized sample page for the GalleryVault companion userscript E2E.</p>
+  </body>
+</html>

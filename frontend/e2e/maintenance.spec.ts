@@ -1,0 +1,486 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { expect, test } from "@playwright/test";
+import { createServer, type ViteDevServer } from "vite";
+import { installMaintenanceMock } from "./fixtures/maintenance/mock";
+import {
+  dismissCrossGidDuplicateEp,
+  duplicateStatusEp,
+  ignoreFavoriteDuplicateEp,
+  refreshCrossGidDuplicatesEp,
+  resolveDuplicateEp,
+  restoreCrossGidDuplicateEp,
+} from "@/api/duplicates";
+import { scanIntegrityEp } from "@/api/integrity";
+import {
+  purgeGalleriesEp,
+  redownloadExpungedEp,
+  restoreGalleriesEp,
+} from "@/api/recycle";
+import {
+  updatesDeleteEp,
+  updatesIgnoreEp,
+  updatesIgnoredEp,
+  updatesUnignoreEp,
+  updatesUpdateEp,
+} from "@/api/updates";
+import { freePort, watchCsp } from "./support/polish";
+
+const PROJECT_ROOT = fileURLToPath(new URL("../", import.meta.url));
+const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
+
+let vite: ViteDevServer;
+let HARNESS = "";
+
+
+
+function viewUrl(path: string, theme = "dark"): string {
+  return `${HARNESS}?theme=${theme}#${path}`;
+}
+
+test.describe("maintenance @maintenance", () => {
+  test.beforeAll(async () => {
+    mkdirSync(SHOTS, { recursive: true });
+    const port = await freePort();
+    vite = await createServer({
+      root: PROJECT_ROOT,
+      logLevel: "error",
+      server: { host: "127.0.0.1", port, strictPort: true },
+    });
+    await vite.listen();
+    HARNESS = `http://127.0.0.1:${port}/e2e/fixtures/maintenance/harness.html`;
+  });
+
+  test.afterAll(async () => {
+    await vite?.close();
+  });
+
+  test.beforeEach(async ({ page, baseURL }) => {
+    const origin = baseURL ?? "http://127.0.0.1";
+    await page.context().addCookies([
+      { name: "galleryvault_csrf", value: "test-csrf", url: HARNESS },
+      { name: "galleryvault_csrf", value: "test-csrf", url: origin },
+    ]);
+  });
+
+  test("updates on the real app route: list, status, update, ignore and confirmed delete", async ({
+    page,
+  }) => {
+    const csp = watchCsp(page);
+    const state = await installMaintenanceMock(page);
+
+    // Routed app (not the harness): AppShell + router guard + route table must
+    // all resolve `#/updates` to the migrated view.
+    await page.goto("/#/updates");
+    await expect(page.getByTestId("content")).toBeVisible();
+    await expect(page.getByTestId("updates-view")).toBeVisible();
+    await expect(page.getByTestId("updates-row-1")).toContainText("Updated Alpha");
+    await expect(page.getByTestId("updates-status")).toContainText("3");
+
+    await page.getByTestId("updates-select-1").check();
+    await page.getByTestId("updates-update").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" && request.path === updatesUpdateEp.path,
+          ).at(-1)?.body,
+      )
+      .toMatchObject({ ids: [1] });
+
+    await page.getByTestId("updates-select-2").check();
+    await page.getByTestId("updates-ignore").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" && request.path === updatesIgnoreEp.path,
+          ).length,
+      )
+      .toBe(1);
+
+    await page.getByTestId("updates-state-filter").locator('[data-segmented-value="failed"]').click();
+    await expect(page).toHaveURL(/state=failed/);
+    await expect(page.getByTestId("updates-row-3")).toBeVisible();
+    await page.getByTestId("updates-select-3").check();
+    await page.getByTestId("updates-delete").click();
+    await expect(page.getByTestId("updates-delete-dialog")).toBeVisible();
+    await page.getByTestId("confirm-accept").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" && request.path === updatesDeleteEp.path,
+          ).at(-1)?.body,
+      )
+      .toMatchObject({ ids: [3] });
+
+    // UI-03: `/updates/ignored` is a child route, so the drawer keeps the
+    // "更新" item active on the secondary view.
+    await page.goto("/#/updates/ignored");
+    await expect(page.getByTestId("updates-ignored-view")).toBeVisible();
+    await expect(
+      page.locator('[data-nav="app.nav.updates"]').first(),
+    ).toHaveClass(/router-link-active/);
+
+    expect(csp).toEqual([]);
+  });
+
+  test("updates ignored: restore selected and single rows", async ({ page }) => {
+    const state = await installMaintenanceMock(page);
+
+    // The first harness navigation in this file makes Vite transform every
+    // maintenance view. Wait for the ignored-list response the view needs
+    // instead of racing the transpile with a longer visibility timeout.
+    const ignoredList = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === updatesIgnoredEp.path,
+      { timeout: 30_000 },
+    );
+    await page.goto(viewUrl("/updates/ignored"));
+    await ignoredList;
+    await expect(page.getByTestId("updates-ignored-view")).toBeVisible();
+    await expect(page.getByTestId("updates-ignored-4")).toContainText("Ignored Delta");
+
+    await page
+      .getByTestId("updates-ignored-4")
+      .locator('input[type="checkbox"]')
+      .check();
+    await page.getByTestId("updates-unignore-selected").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" && request.path === updatesUnignoreEp.path,
+          ).at(-1)?.body,
+      )
+      .toMatchObject({ ids: [4] });
+  });
+
+  test("library duplicates: confirm keep, delete others and set status", async ({ page }) => {
+    const csp = watchCsp(page);
+    const state = await installMaintenanceMock(page);
+
+    await page.goto(viewUrl("/duplicates"));
+    await expect(page.getByTestId("duplicates-view")).toBeVisible();
+    await expect(page.getByTestId("duplicates-group-9001")).toContainText("Alpha Copy");
+    await expect(page.getByTestId("duplicates-persisted")).toBeVisible();
+
+    await page.getByTestId("duplicates-keep-delete-copy-b").click();
+    await expect(page.getByTestId("duplicates-confirm")).toBeVisible();
+    await page.getByTestId("confirm-accept").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.path === resolveDuplicateEp.path.replace("{gid}", "9001"),
+          ).at(-1)?.body,
+      )
+      .toMatchObject({ path: "/library/alpha.cbz", delete_others: true });
+
+    await page.getByTestId("duplicates-dismiss-9002").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.path === duplicateStatusEp.path.replace("{gid}", "9002").replace("{status}", "open"),
+          ).length,
+      )
+      .toBe(1);
+
+    expect(csp).toEqual([]);
+  });
+
+  test("favorite duplicates: scan, unfavorite + delete and ignore", async ({ page }) => {
+    const csp = watchCsp(page);
+    const state = await installMaintenanceMock(page);
+
+    await page.goto(viewUrl("/duplicates/favorites"));
+    await expect(page.getByTestId("dupfav-view")).toBeVisible();
+    await expect(page.getByTestId("dupfav-group-fav-group-1")).toBeVisible();
+    await expect(page.getByTestId("dupfav-persisted")).toBeVisible();
+
+    await page.getByTestId("dupfav-scan").click();
+    await expect.poll(() => state.favoriteScans).toBe(1);
+
+    await page.getByTestId("dupfav-select-3002").locator("input").check();
+    await page.getByTestId("dupfav-unfav-delete").click();
+    await expect(page.getByTestId("dupfav-confirm")).toBeVisible();
+    await page.getByTestId("confirm-accept").click();
+    await expect.poll(() => state.removals.at(-1)).toEqual({
+      gids: [3002],
+      deleteLocal: true,
+    });
+
+    await page.getByTestId("dupfav-select-3001").locator("input").check();
+    await page.getByTestId("dupfav-ignore").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.path === ignoreFavoriteDuplicateEp.path,
+          ).at(-1)?.body,
+      )
+      .toMatchObject({ key: "fav-group-1" });
+
+    expect(csp).toEqual([]);
+  });
+
+  test("ignored favorite duplicates: restore selected", async ({ page }) => {
+    const state = await installMaintenanceMock(page);
+
+    await page.goto(viewUrl("/favorites/ignored"));
+    await expect(page.getByTestId("favignored-view")).toBeVisible();
+    await expect(page.getByTestId("favignored-item-4001")).toBeVisible();
+    await expect(page.getByTestId("favignored-persisted")).toBeVisible();
+
+    await page.getByTestId("favignored-select-0").click();
+    await page.getByTestId("favignored-restore-selected").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "DELETE" &&
+              request.path === ignoreFavoriteDuplicateEp.path,
+          ).at(-1)?.query.get("key"),
+      )
+      .toBe("ignored-fav-1");
+  });
+
+  test("cross-gid duplicates: safe links, confirmed remove and recompute", async ({ page }) => {
+    const csp = watchCsp(page);
+    const state = await installMaintenanceMock(page);
+
+    await page.goto(viewUrl("/duplicates/cross-gid"));
+    await expect(page.getByTestId("dupxgid-view")).toBeVisible();
+    await expect(page.getByTestId("dupxgid-item-5001")).toBeVisible();
+
+    const link = page.getByTestId("dupxgid-link-5002");
+    await expect(link).toHaveAttribute("href", "#");
+    expect(await page.locator('a[href^="javascript:"]').count()).toBe(0);
+
+    await page.getByTestId("dupxgid-select-5002").locator("input").check();
+    await page.getByTestId("dupxgid-unfav-delete").click();
+    await expect(page.getByTestId("dupxgid-confirm")).toBeVisible();
+    await page.getByTestId("confirm-accept").click();
+    await expect.poll(() => state.removals.at(-1)).toEqual({
+      gids: [5002],
+      deleteLocal: true,
+    });
+
+    await page.getByTestId("dupxgid-recompute").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.path === refreshCrossGidDuplicatesEp.path,
+          ).length,
+      )
+      .toBe(1);
+
+    expect(csp).toEqual([]);
+  });
+
+  test("cross-gid duplicates: dismiss a group, list the ignored tab and restore it", async ({
+    page,
+  }) => {
+    const state = await installMaintenanceMock(page);
+
+    await page.goto(viewUrl("/duplicates/cross-gid"));
+    await expect(page.getByTestId("dupxgid-item-5001")).toBeVisible();
+
+    await page.getByTestId("dupxgid-dismiss-71").click();
+    await expect(page.getByTestId("dupxgid-item-5001")).toHaveCount(0);
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.path === dismissCrossGidDuplicateEp.path.replace("{id}", "71"),
+          ).length,
+      )
+      .toBe(1);
+
+    await page
+      .getByTestId("dupxgid-status")
+      .locator('[data-segmented-value="dismissed"]')
+      .click();
+    await expect(page.getByTestId("dupxgid-item-5101")).toBeVisible();
+    await expect(page.getByTestId("dupxgid-restore-72")).toBeVisible();
+
+    await page.getByTestId("dupxgid-restore-72").click();
+    await expect(page.getByTestId("dupxgid-group-xgid-ignored")).toHaveCount(0);
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.path === restoreCrossGidDuplicateEp.path.replace("{id}", "72"),
+          ).length,
+      )
+      .toBe(1);
+
+    await page.getByTestId("dupxgid-restore-71").click();
+    await page
+      .getByTestId("dupxgid-status")
+      .locator('[data-segmented-value="open"]')
+      .click();
+    await expect(page.getByTestId("dupxgid-item-5001")).toBeVisible();
+  });
+
+  test("recycle: restore, confirmed purge with files and expunged redownload", async ({
+    page,
+  }) => {
+    const csp = watchCsp(page);
+    const state = await installMaintenanceMock(page);
+
+    await page.goto(viewUrl("/recycle"));
+    await expect(page.getByTestId("recycle-view")).toBeVisible();
+    await expect(page.getByTestId("recycle-item-21")).toContainText("Trash One");
+
+    await page.getByTestId("recycle-select-21").locator("input").check();
+    await page.getByTestId("recycle-restore").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" && request.path === restoreGalleriesEp.path,
+          ).at(-1)?.body,
+      )
+      .toMatchObject({ ids: [21] });
+
+    await page.getByTestId("recycle-select-22").locator("input").check();
+    await page.getByTestId("recycle-purge").click();
+    await expect(page.getByTestId("recycle-purge-dialog")).toBeVisible();
+    await page.getByTestId("recycle-delete-files").locator("input").check();
+    await page.getByTestId("confirm-accept").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" && request.path === purgeGalleriesEp.path,
+          ).at(-1)?.body,
+      )
+      .toMatchObject({ ids: [22], delete_files: true });
+
+    await page
+      .getByTestId("recycle-tabs")
+      .locator('[data-segmented-value="expunged"]')
+      .click();
+    await expect(page).toHaveURL(/tab=expunged/);
+    await expect(page.getByTestId("recycle-item-31")).toContainText("Expunged One");
+    await page.getByTestId("recycle-select-31").locator("input").check();
+    await page.getByTestId("recycle-redownload").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.path === redownloadExpungedEp.path,
+          ).at(-1)?.body,
+      )
+      .toMatchObject({ ids: [31] });
+
+    expect(csp).toEqual([]);
+  });
+
+  test("integrity: scan, select all and repair", async ({ page }) => {
+    const csp = watchCsp(page);
+    const state = await installMaintenanceMock(page);
+
+    await page.goto(viewUrl("/integrity"));
+    await expect(page.getByTestId("integrity-view")).toBeVisible();
+    await expect(page.getByTestId("integrity-item-41")).toContainText("Integrity One");
+
+    await page.getByTestId("integrity-select-all").click();
+    await page.getByTestId("integrity-repair").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              /^\/api\/galleries\/\d+\/redownload$/.test(request.path),
+          ).length,
+      )
+      .toBe(2);
+
+    await page.getByTestId("integrity-scan").click();
+    await expect
+      .poll(
+        () =>
+          state.requests.filter(
+            (request) =>
+              request.method === "POST" &&
+              request.path === scanIntegrityEp.path,
+          ).length,
+      )
+      .toBe(1);
+
+    expect(csp).toEqual([]);
+  });
+
+  test("screenshots cover every view in dark/light and desktop/mobile", async ({ page }) => {
+    const csp = watchCsp(page);
+    await installMaintenanceMock(page);
+
+    const views = [
+      { name: "updates", path: "/updates", ready: "updates-row-1" },
+      { name: "updates-ignored", path: "/updates/ignored", ready: "updates-ignored-4" },
+      { name: "duplicates", path: "/duplicates", ready: "duplicates-group-9001" },
+      {
+        name: "duplicates-favorites",
+        path: "/duplicates/favorites",
+        ready: "dupfav-group-fav-group-1",
+      },
+      {
+        name: "duplicates-cross-gid",
+        path: "/duplicates/cross-gid",
+        ready: "dupxgid-item-5001",
+      },
+      { name: "recycle", path: "/recycle", ready: "recycle-item-21" },
+      { name: "integrity", path: "/integrity", ready: "integrity-item-41" },
+    ] as const;
+    const themes = ["dark", "light"] as const;
+    const viewports = [
+      { width: 1280, height: 900 },
+      { width: 390, height: 844 },
+    ];
+
+    for (const view of views) {
+      for (const theme of themes) {
+        for (const viewport of viewports) {
+          await page.setViewportSize(viewport);
+          await page.goto(viewUrl(view.path, theme));
+          await expect(page.getByTestId(view.ready)).toBeVisible();
+          await page.screenshot({
+            path: join(SHOTS, `maintenance-${view.name}-${theme}-${viewport.width}.png`),
+            fullPage: true,
+          });
+        }
+      }
+    }
+
+    expect(csp).toEqual([]);
+  });
+});

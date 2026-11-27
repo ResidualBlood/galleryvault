@@ -1,6 +1,9 @@
+import asyncio
 import html
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import delete, func, select, update
@@ -35,8 +38,14 @@ def _clean_download_title(val: str | None) -> str | None:
 
 
 class DownloadRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        on_new_task: Callable[[], None] | None = None,
+    ) -> None:
         self.session = session
+        self._on_new_task = on_new_task
 
     async def create(
         self,
@@ -71,12 +80,11 @@ class DownloadRepository:
         )
         self.session.add(task)
         await self.session.flush()
-        try:
-            from ...services.download_worker import notify_new_task
-
-            notify_new_task()
-        except Exception:  # noqa: BLE001, S110
-            pass
+        if self._on_new_task is not None:
+            try:
+                self._on_new_task()
+            except Exception:  # noqa: BLE001, S110
+                pass
         return task
 
     async def retarget(
@@ -113,12 +121,83 @@ class DownloadRepository:
         return True
 
     async def recover_orphans(self) -> int:
+        # Rows waiting for ingest (ingest_status='pending') are owned by the
+        # DB-driven ingest pump and must keep their ``downloading`` status;
+        # resetting them would re-download a gallery that is already on disk.
         result = await self.session.execute(
             update(DownloadTask)
-            .where(DownloadTask.status == "downloading")
+            .where(
+                DownloadTask.status == "downloading",
+                DownloadTask.ingest_status.is_(None),
+            )
             .values(status="pending", updated_at=datetime.now(UTC))
         )
         return int(result.rowcount or 0)
+
+    async def next_pending_ingest(self) -> dict[str, Any] | None:
+        """Oldest download whose files are on disk but not yet ingested."""
+        row = await self.session.scalar(
+            select(DownloadTask)
+            .where(
+                DownloadTask.status == "downloading",
+                DownloadTask.ingest_status == "pending",
+            )
+            .order_by(DownloadTask.id)
+            .limit(1)
+        )
+        if row is None:
+            return None
+        return {
+            "id": row.id,
+            "gid": row.gid,
+            "title": row.title,
+            "ingest_payload": row.ingest_payload,
+        }
+
+    async def mark_ingest_done(self, task_id: int) -> bool:
+        """Commit ``success`` only after the gallery is in the library."""
+        now = datetime.now(UTC)
+        result = await self.session.execute(
+            update(DownloadTask)
+            .where(
+                DownloadTask.id == task_id,
+                DownloadTask.status == "downloading",
+            )
+            .values(
+                status="success",
+                ingest_status="done",
+                ingest_payload=None,
+                error_message=None,
+                finished_at=now,
+                updated_at=now,
+            )
+        )
+        return bool(result.rowcount or 0)
+
+    async def mark_ingest_failed(self, task_id: int, error: str) -> bool:
+        """Terminal ``failed`` for an ingest that could not import the files.
+
+        ``ingest_payload`` is kept so a later retry can re-run only the ingest
+        step without downloading the gallery again.
+        """
+        now = datetime.now(UTC)
+        result = await self.session.execute(
+            update(DownloadTask)
+            .where(
+                DownloadTask.id == task_id,
+                DownloadTask.status == "downloading",
+                DownloadTask.ingest_status == "pending",
+            )
+            .values(
+                status="failed",
+                ingest_status="failed",
+                error_message=f"ingest: {error}"[:2000],
+                retry_at=None,
+                finished_at=now,
+                updated_at=now,
+            )
+        )
+        return bool(result.rowcount or 0)
 
     async def claim_pending(self) -> DownloadTask | None:
         now = datetime.now(UTC)
@@ -160,31 +239,19 @@ class DownloadRepository:
             row.updated_at = row.started_at
         return row
 
-    async def rearm_failed(self) -> int:
-        """Requeue failed tasks that still have retry budget left.
+    async def next_retry_at(self) -> datetime | None:
+        """Earliest scheduled ``retry_at`` among pending tasks, if any.
 
-        Called by the periodic sweep so a download that exhausted its immediate
-        attempts is tried again later instead of waiting for a manual retry.
+        Workers use this to bound their idle wait: a due retry must be claimed
+        even when nobody enqueues a new task or wakes the worker (report 01
+        P1-4). Returns ``None`` when no pending task has a retry scheduled.
         """
-        now = datetime.now(UTC)
-        result = await self.session.execute(
-            update(DownloadTask)
-            .where(
-                DownloadTask.status == "failed",
-                DownloadTask.retry_count < DownloadTask.max_retries,
+        return await self.session.scalar(
+            select(func.min(DownloadTask.retry_at)).where(
+                DownloadTask.status == "pending",
+                DownloadTask.retry_at.is_not(None),
             )
-            .values(status="pending", retry_at=now, updated_at=now)
         )
-        return int(result.rowcount or 0)
-
-    async def sweep_auto_retry(self) -> int:
-        """Alias for the retry sweep expected by download_worker_loop.
-
-        The worker imports ``sweep_auto_retry``; keep it as a thin wrapper
-        over ``rearm_failed`` so tests that patch either name work. Future
-        improvements could filter by error type (skip ArchiveNotRetryable).
-        """
-        return await self.rearm_failed()
 
     async def count_active(self) -> int:
         """Number of download tasks still pending or in progress."""
@@ -240,8 +307,15 @@ class DownloadRepository:
             Gallery.title_jpn,
         ).label("effective_title_jpn")
 
+        # ``Gallery.id`` comes from the same outer join, so every page needs a
+        # single query: no per-row lookup for the local gallery id.
         query = (
-            select(DownloadTask, effective_title, effective_title_jpn)
+            select(
+                DownloadTask,
+                effective_title,
+                effective_title_jpn,
+                Gallery.id.label("gallery_id"),
+            )
             .outerjoin(GalleryMetadata, GalleryMetadata.gid == DownloadTask.gid)
             .outerjoin(Gallery, Gallery.gid == DownloadTask.gid)
         )
@@ -254,12 +328,13 @@ class DownloadRepository:
         )
         res = await self.session.execute(query)
         items: list[dict] = []
-        for task, eff_title, eff_title_jpn in res.all():
+        for task, eff_title, eff_title_jpn, gallery_id in res.all():
             items.append(
                 DownloadTaskRow(
                     id=task.id,
                     gid=task.gid,
                     token=task.token,
+                    gallery_id=gallery_id,
                     title=eff_title,
                     title_jpn=eff_title_jpn,
                     status=task.status,
@@ -269,6 +344,7 @@ class DownloadRepository:
                     archive_fallback=getattr(task, "archive_fallback", False),
                     archive_status=task.archive_status,
                     archive_error=task.archive_error,
+                    ingest_status=task.ingest_status,
                     retry_count=task.retry_count,
                     max_retries=task.max_retries,
                     current_page=task.current_page,
@@ -283,13 +359,19 @@ class DownloadRepository:
             )
         return total, items
 
-    async def cancel(self, task_id: int) -> bool:
+    async def cancel(self, task_id: int) -> str | None:
+        """Cancel an active task and return its real terminal status.
+
+        Returns ``None`` when the task does not exist. Terminal tasks are left
+        untouched and their current status is returned so callers can surface
+        it instead of pretending the cancel took effect.
+        """
         task = await self.session.get(DownloadTask, task_id)
         if task is None:
-            return False
+            return None
         if task.status in {"pending", "downloading"}:
             task.status = "cancelled"
-        return True
+        return task.status
 
     async def delete(self, task_id: int) -> bool:
         """Permanently remove a download task (and its attempt log)."""
@@ -332,14 +414,24 @@ class DownloadRepository:
         return True
 
     async def retry_all(self) -> list[int]:
-        """Reset pending, failed, and cancelled download tasks to healthy pending status.
+        """Reset pending, failed, and cancelled download tasks to a healthy state.
 
-        De-duplicates by gid to respect the unique active constraint.
+        A task whose previous failure was an *ingest* failure and whose files
+        are still on disk goes back to ``downloading + ingest_status='pending'``
+        so only the import is re-run (no re-download). Everything else is
+        requeued for a normal download. De-duplicates by gid to respect the
+        unique active constraint.
         """
         now = datetime.now(UTC)
         downloading_subquery = select(DownloadTask.gid).where(DownloadTask.status == "downloading")
         stmt = (
-            select(DownloadTask.id, DownloadTask.gid, DownloadTask.status)
+            select(
+                DownloadTask.id,
+                DownloadTask.gid,
+                DownloadTask.status,
+                DownloadTask.ingest_status,
+                DownloadTask.target_path,
+            )
             .where(
                 DownloadTask.status.in_(["pending", "failed", "cancelled"]),
                 DownloadTask.gid.not_in(downloading_subquery),
@@ -351,37 +443,105 @@ class DownloadRepository:
         if not candidates:
             return []
 
-        by_gid: dict[int, list[tuple[int, str]]] = {}
-        for tid, gid, status in candidates:
-            by_gid.setdefault(int(gid), []).append((int(tid), str(status)))
+        by_gid: dict[int, list[tuple[int, str, Any, Any]]] = {}
+        for row in candidates:
+            tid, gid, status = int(row[0]), int(row[1]), str(row[2])
+            ingest_status = row[3] if len(row) > 3 else None
+            target_path = row[4] if len(row) > 4 else None
+            by_gid.setdefault(gid, []).append((tid, status, ingest_status, target_path))
 
-        target_ids: list[int] = []
+        plain_ids: list[int] = []
+        ingest_ids: list[int] = []
         for items in by_gid.values():
-            pending_item = next((tid for tid, st in items if st == "pending"), None)
-            if pending_item is not None:
-                target_ids.append(pending_item)
+            pending_item = next((item for item in items if item[1] == "pending"), None)
+            target = pending_item or items[0]
+            tid, status, ingest_status, target_path = target
+            if (
+                status == "failed"
+                and ingest_status == "failed"
+                and await self._files_present(target_path)
+            ):
+                ingest_ids.append(tid)
             else:
-                target_ids.append(items[0][0])
+                plain_ids.append(tid)
 
-        if not target_ids:
-            return []
-
-        target_ids.sort()
-        update_stmt = (
-            update(DownloadTask)
-            .where(DownloadTask.id.in_(target_ids))
-            .values(
-                status="pending",
-                retry_at=None,
-                retry_count=0,
-                max_retries=10,
-                error_message=None,
-                finished_at=None,
-                updated_at=now,
+        if plain_ids:
+            await self.session.execute(
+                update(DownloadTask)
+                .where(DownloadTask.id.in_(plain_ids))
+                .values(
+                    status="pending",
+                    ingest_status=None,
+                    ingest_payload=None,
+                    retry_at=None,
+                    retry_count=0,
+                    max_retries=10,
+                    error_message=None,
+                    finished_at=None,
+                    updated_at=now,
+                )
             )
-        )
-        await self.session.execute(update_stmt)
-        return target_ids
+        if ingest_ids:
+            await self.session.execute(
+                update(DownloadTask)
+                .where(DownloadTask.id.in_(ingest_ids))
+                .values(
+                    status="downloading",
+                    ingest_status="pending",
+                    retry_at=None,
+                    retry_count=0,
+                    max_retries=10,
+                    error_message=None,
+                    finished_at=None,
+                    updated_at=now,
+                )
+            )
+        return sorted(plain_ids + ingest_ids)
+
+    @staticmethod
+    async def _files_present(target_path: Any) -> bool:
+        """Whether a task target still exists (filesystem check off the loop)."""
+        if not target_path:
+            return False
+        try:
+            return await asyncio.to_thread(lambda: Path(str(target_path)).exists())
+        except (OSError, ValueError):
+            return False
+
+    async def can_rerun_ingest(self, task: DownloadTask) -> bool:
+        """A failed ingest whose files survived can be retried without re-downloading."""
+        if getattr(task, "status", None) != "failed":
+            return False
+        if getattr(task, "ingest_status", None) != "failed":
+            return False
+        return await self._files_present(getattr(task, "target_path", None))
+
+    async def reset_for_retry(self, task: DownloadTask) -> str:
+        """Move a terminal task back to the queue and return the new status.
+
+        Ingest failures with the downloaded directory still on disk become
+        ``downloading + ingest_status='pending'``: the ingest pump picks the row
+        up and no network request or GP is spent. Otherwise the task goes back
+        to ``pending`` with the ingest state cleared for a normal re-download.
+        Shared by the API endpoint, ``/retry-all`` and the Telegram bot.
+        """
+        now = datetime.now(UTC)
+        if await self.can_rerun_ingest(task):
+            task.status = "downloading"
+            task.ingest_status = "pending"
+            new_status = "downloading"
+        else:
+            task.status = "pending"
+            task.ingest_status = None
+            task.ingest_payload = None
+            new_status = "pending"
+        task.retry_count = 0
+        task.retry_at = None
+        task.error_message = None
+        task.finished_at = None
+        task.max_retries = 10
+        task.updated_at = now
+        return new_status
 
 
 

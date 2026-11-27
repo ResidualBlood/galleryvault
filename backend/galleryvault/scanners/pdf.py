@@ -67,8 +67,9 @@ class PdfScanner(ArchiveScanner):
         except Exception as exc:  # noqa: BLE001
             warnings.append(f"pdf extract failed: {exc}")
         if not names:
-            warnings.append("pdf contained no extractable embedded images")
-            logger.warning("pdf scan skipped images", extra={"path": str(path)})
+            logger.warning(
+                "pdf contained no extractable embedded images", extra={"path": str(path)}
+            )
         ordered = sorted(
             (name for name in names if Path(name).suffix.casefold() in IMAGE_EXTENSIONS),
             key=natural_key,

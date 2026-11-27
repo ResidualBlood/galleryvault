@@ -1,0 +1,291 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { expect, test } from "@playwright/test";
+import { ehSearchEp } from "../src/api/eh";
+import { mockOnlineBackend } from "./fixtures/online/mock";
+import {
+  LIST_GID,
+  LIST_TOKEN,
+  NEWER_GID,
+  NEWER_TOKEN,
+  PAGE_CURSOR,
+} from "./fixtures/online/data";
+import { watchCsp } from "./support/polish";
+
+const SHOTS = process.env.GV_SHOTS || join(process.cwd(), "test-results/shots");
+
+
+function detailUrl(gid = LIST_GID, token = LIST_TOKEN): string {
+  return `/#/online/g/${gid}/${token}`;
+}
+
+test.beforeAll(() => {
+  mkdirSync(SHOTS, { recursive: true });
+});
+
+test.describe("online browse @online", () => {
+  test("search updates the URL and renders matching cards", async ({ page }) => {
+    const csp = watchCsp(page);
+    await mockOnlineBackend(page);
+
+    await page.goto("/#/discover");
+    await expect(page.getByTestId("online-view")).toBeVisible();
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "12");
+
+    await page.getByTestId("online-search").locator("input").fill("match");
+    await page.getByTestId("online-submit").click();
+
+    await expect(page).toHaveURL(/q=match/);
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "1");
+    await expect(page.getByTestId("gallery-card").first()).toContainText(
+      "Search Match: match",
+    );
+    expect(csp).toEqual([]);
+  });
+
+  test("cursor infinite scroll loads page two and back restores the list", async ({
+    page,
+  }) => {
+    const csp = watchCsp(page);
+    await mockOnlineBackend(page);
+    const searches: string[] = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === ehSearchEp.path) searches.push(url.search);
+    });
+
+    await page.goto("/#/online");
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "12");
+
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "18");
+    expect(searches.some((query) => query.includes(`next=${PAGE_CURSOR}`))).toBe(true);
+
+    await page.evaluate(() => window.scrollTo(0, 700));
+    await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(700);
+    // The row's tag line sits on the vertical centre; click the title area so
+    // the card link opens the detail page (tags intentionally search instead).
+    await page.getByTestId("gallery-card").nth(4).click({ position: { x: 200, y: 20 } });
+
+    await expect(page).toHaveURL(new RegExp(`#/online/g/\\d+/tok\\d+$`));
+    await expect(page.getByTestId("online-title")).toHaveText("Online Detail Fixture");
+
+    await page.goBack();
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "18");
+    // Wait for the cached list to finish its nextTick + rAF scroll restore,
+    // rather than racing the render with a fixed sleep.
+    await page.waitForFunction(
+      () => {
+        const y = Math.round(window.scrollY);
+        return y > 400 && Math.abs(y - 700) < 300;
+      },
+      null,
+      { timeout: 10_000, polling: 100 },
+    );
+    expect(csp).toEqual([]);
+  });
+
+  test("detail renders contract fields, official link, no iframe and page placeholders", async ({
+    page,
+  }) => {
+    const csp = watchCsp(page);
+    await mockOnlineBackend(page);
+
+    await page.goto(detailUrl());
+    await expect(page.getByTestId("online-detail-view")).toBeVisible();
+    await expect(page.getByTestId("online-title")).toHaveText("Online Detail Fixture");
+    await expect(page.locator('[data-testid="tag-group"]')).toHaveCount(5);
+    await expect(page.getByTestId("online-newer")).toBeVisible();
+
+    const official = page.getByTestId("online-official");
+    await expect(official).toHaveAttribute(
+      "href",
+      `https://exhentai.org/g/${LIST_GID}/${LIST_TOKEN}/`,
+    );
+    await expect(official).toHaveAttribute("target", "_blank");
+    await expect(official).toHaveAttribute("rel", "noopener noreferrer");
+    expect(await page.locator("iframe").count()).toBe(0);
+
+    await expect
+      .poll(async () => Number(await page.getByTestId("online-thumbs").getAttribute("data-loaded")))
+      .toBeGreaterThanOrEqual(20);
+    const placeholders = page.getByTestId("online-thumb-placeholder");
+    expect(await placeholders.count()).toBeGreaterThan(0);
+    await expect(placeholders.first()).toContainText("2");
+
+    await page.getByTestId("online-read").click();
+    await expect(page).toHaveURL(
+      new RegExp(`#/online/g/${LIST_GID}/${LIST_TOKEN}/read/0$`),
+    );
+    expect(csp).toEqual([]);
+  });
+
+  test("in-library fixture offers the local copy and newer-version navigation", async ({
+    page,
+  }) => {
+    const csp = watchCsp(page);
+    await mockOnlineBackend(page);
+
+    await page.goto(detailUrl(NEWER_GID, NEWER_TOKEN));
+    await expect(page.getByTestId("online-title")).toHaveText(
+      "Online Detail Fixture (newer)",
+    );
+    const local = page.getByTestId("online-open-local");
+    await expect(local).toBeVisible();
+    await expect(local).toHaveAttribute("href", /#\/gallery\/42$/);
+    expect(csp).toEqual([]);
+  });
+
+  test("preview thumbnails load one page at a time on mobile", async ({ page }) => {
+    const csp = watchCsp(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockOnlineBackend(page);
+    const requested: string[] = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname.endsWith("/pages")) requested.push(url.search);
+    });
+
+    await page.goto(detailUrl());
+    await expect(page.getByTestId("online-thumbs")).toHaveAttribute("data-loaded", "20");
+    expect(requested.some((query) => query.includes("p=1"))).toBe(false);
+
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await expect
+      .poll(() => requested.some((query) => query.includes("p=1")))
+      .toBe(true);
+    await expect(page.getByTestId("online-thumbs")).toHaveAttribute("data-loaded", "32");
+    expect(csp).toEqual([]);
+  });
+
+  test("auth state points at settings, banned state shows a ban notice", async ({ page }) => {
+    const csp = watchCsp(page);
+    await mockOnlineBackend(page);
+
+    await page.goto("/#/online?q=__auth__");
+    const auth = page.getByTestId("online-state-auth");
+    await expect(auth).toBeVisible();
+    const settings = auth.getByTestId("online-state-settings");
+    await expect(settings).toBeVisible();
+    await expect(settings).toHaveAttribute("href", /#\/settings$/);
+
+    await page.goto("/#/online?q=__banned__");
+    const banned = page.getByTestId("online-state-banned");
+    await expect(banned).toBeVisible();
+    await expect(banned).toContainText("封禁");
+    expect(await page.locator("iframe").count()).toBe(0);
+    expect(csp).toEqual([]);
+  });
+
+  test("pager walks next/previous and keeps cursors in the URL", async ({ page }) => {
+    await mockOnlineBackend(page);
+    await page.goto("/#/online");
+    const pager = page.getByTestId("online-pager");
+    await expect(pager).toBeVisible();
+    await expect(pager.locator('[data-pager="prev"]')).toBeDisabled();
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "12");
+
+    await pager.locator('[data-pager="next"]').click();
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "6");
+    await expect(page).toHaveURL(/next=1-2/);
+    await expect(pager.locator('[data-pager="prev"]')).toBeEnabled();
+
+    await pager.locator('[data-pager="prev"]').click();
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "12");
+    await expect(page).toHaveURL(/prev=0-1/);
+  });
+
+  test("date jump uses a preset or a picked date and replays from the URL", async ({
+    page,
+  }) => {
+    await mockOnlineBackend(page);
+    await page.goto("/#/online");
+    const pager = page.getByTestId("online-pager");
+    await expect(pager.getByTestId("online-jump-preset")).toBeVisible();
+
+    await pager.getByTestId("online-jump-preset").locator("select").selectOption("1m");
+    await pager.getByTestId("online-date-jump").click();
+    await expect(page.getByTestId("gallery-card").first()).toContainText("Date jump 1m");
+    await expect(page).toHaveURL(/jump=1m/);
+    await expect(page).toHaveURL(/next=1-2/);
+
+    await page.getByTestId("online-date-input").fill("2024-02-29");
+    await pager.getByTestId("online-date-jump").click();
+    await expect(page.getByTestId("gallery-card").first()).toContainText(
+      "Date jump 2024-02-29",
+    );
+    await expect(page).toHaveURL(/seek=2024-02-29/);
+
+    await page.reload();
+    await expect(page.getByTestId("gallery-card").first()).toContainText(
+      "Date jump 2024-02-29",
+    );
+  });
+
+  test("toplist pager jumps to page N and replays page from the URL", async ({ page }) => {
+    await mockOnlineBackend(page);
+    await page.goto("/#/online?list=toplist");
+    const pager = page.getByTestId("online-pager");
+    await expect(page.getByTestId("gallery-card").first()).toContainText("Online Fixture 01");
+    await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loading", "0");
+
+    const jump = pager.locator('[data-pager="jump"]');
+    await jump.fill("3");
+    await jump.press("Enter");
+    await expect(page).toHaveURL(/page=3/);
+    await expect(page.getByTestId("gallery-card").first()).toContainText("Online Fixture 07");
+
+    await page.reload();
+    await expect(page.getByTestId("gallery-card").first()).toContainText("Online Fixture 07");
+  });
+
+  test("pager and date-jump screenshots at 1280 and 390", async ({ page }) => {
+    await mockOnlineBackend(page);
+    for (const viewport of [
+      { width: 1280, height: 900, label: "1280" },
+      { width: 390, height: 844, label: "390" },
+    ]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto("/#/online");
+      await expect(page.getByTestId("online-pager")).toBeVisible();
+      await expect(page.getByTestId("online-jump-preset")).toBeVisible();
+      await page.screenshot({
+        path: join(SHOTS, `online-pager-${viewport.label}.png`),
+        fullPage: true,
+      });
+    }
+  });
+
+  test("screenshots cover dark/light x desktop/mobile", async ({ page }) => {
+    const csp = watchCsp(page);
+    await mockOnlineBackend(page);
+    const themes = ["dark", "light"] as const;
+    const viewports = [
+      { width: 1280, height: 900, label: "1280" },
+      { width: 390, height: 844, label: "390" },
+    ];
+
+    for (const theme of themes) {
+      for (const viewport of viewports) {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await page.goto("/#/online");
+        await page.evaluate((value) => localStorage.setItem("gv_theme", value), theme);
+        await page.reload();
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+        await expect(page.getByTestId("online-grid")).toHaveAttribute("data-loaded", "12");
+        await page.screenshot({
+          path: join(SHOTS, `online-list-${theme}-${viewport.label}.png`),
+          fullPage: true,
+        });
+
+        await page.goto(detailUrl());
+        await expect(page.getByTestId("online-title")).toBeVisible();
+        await page.screenshot({
+          path: join(SHOTS, `online-detail-${theme}-${viewport.label}.png`),
+          fullPage: true,
+        });
+      }
+    }
+    expect(csp).toEqual([]);
+  });
+});

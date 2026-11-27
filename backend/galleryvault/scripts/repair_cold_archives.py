@@ -32,7 +32,9 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from galleryvault.config import get_settings
-from galleryvault.db.models import Gallery, GalleryMetadata
+from galleryvault.db.models import DuplicateGroup, Gallery, GalleryMetadata
+from galleryvault.db.repositories.base import path_hash
+from galleryvault.db.repositories.galleries_ingest import sync_storage_tier
 from galleryvault.scanners.ehviewer import strip_gid_prefix
 from galleryvault.services.cold_archive import (
     compute_cold_path,
@@ -106,7 +108,7 @@ async def fetch_gdata_batch(
         return {}
     settings = get_settings()
     if base_url:
-        settings.exhentai_base_url = base_url
+        settings = settings.model_copy(update={"exhentai_base_url": base_url})
 
     if client is not None and not str(client.base_url):
         client.base_url = httpx.URL(base_url)
@@ -183,6 +185,86 @@ def fallback_cleanse_titles(
     return clean_title, clean_jpn
 
 
+def _rewrite_copy_paths(
+    copies: list[Any], old_path: str, new_path: str, old_key: str, new_key: str
+) -> bool:
+    """Point the copies stored at ``old_path`` at ``new_path`` (in place)."""
+    touched = False
+    for copy in copies:
+        if not isinstance(copy, dict):
+            continue
+        if str(copy.get("path") or "") != old_path:
+            continue
+        copy["path"] = new_path
+        if copy.get("key") == old_key:
+            copy["key"] = new_key
+        touched = True
+    return touched
+
+
+def _rewrite_duplicate_payload(payload: dict[str, Any], old_path: str, new_path: str) -> bool:
+    """Rewrite one duplicate payload for a rename; return whether it changed."""
+    old_key = path_hash(Path(old_path))
+    new_key = path_hash(Path(new_path))
+    copies = list(payload.get("copies") or [])
+    touched = _rewrite_copy_paths(copies, old_path, new_path, old_key, new_key)
+    if payload.get("winner_path") == old_path:
+        payload["winner_path"] = new_path
+        touched = True
+    if touched:
+        payload["copies"] = copies
+    return touched
+
+
+async def update_duplicate_records_for_rename(
+    session: AsyncSession,
+    old_path: str,
+    new_path: str,
+    updated_rows: list[Any] | None = None,
+) -> int:
+    """Rewrite a renamed copy's path/key in ``duplicate_groups`` payloads.
+
+    Returns the number of duplicate group rows changed. Pass ``updated_rows``
+    (rows already loaded by the caller) to avoid re-scanning the table for
+    every rename in one script run; a row is either a ``DuplicateGroup`` (its
+    copies live in ``payload``) or an in-memory row exposing ``copies`` and
+    ``winner_path`` directly.
+    """
+    if updated_rows is None:
+        if session is None or not hasattr(session, "scalars"):
+            return 0
+        updated_rows = list(
+            (
+                await session.scalars(
+                    select(DuplicateGroup).where(DuplicateGroup.kind == "same_gid")
+                )
+            ).all()
+        )
+
+    changed = 0
+    for row in updated_rows:
+        payload = getattr(row, "payload", None)
+        if isinstance(payload, dict):
+            payload = dict(payload)
+            if not _rewrite_duplicate_payload(payload, old_path, new_path):
+                continue
+            # Reassign so SQLAlchemy sees the JSONB mutation.
+            row.payload = payload
+            changed += 1
+            continue
+
+        payload = {
+            "copies": list(getattr(row, "copies", None) or []),
+            "winner_path": getattr(row, "winner_path", None),
+        }
+        if not _rewrite_duplicate_payload(payload, old_path, new_path):
+            continue
+        row.copies = payload["copies"]
+        row.winner_path = payload["winner_path"]
+        changed += 1
+    return changed
+
+
 async def repair_cold_archives(
     db_url: str | AsyncEngine | async_sessionmaker[AsyncSession] | Any,
     execute: bool = False,
@@ -231,6 +313,8 @@ async def repair_cold_archives(
     local_skipped_missing_source = 0
     local_skipped_conflict = 0
     local_skipped_error = 0
+
+    duplicates_updated = 0
 
     try:
         async with session_factory() as session:
@@ -327,6 +411,13 @@ async def repair_cold_archives(
                         if semaphore is not None:
                             eh_client._semaphore = semaphore
                         try:
+                            # Plain (gid, token) values are already copied into
+                            # ``need_gdata_pairs``; no writes are pending here.
+                            # The long-lived session still owns every ORM
+                            # instance this one-shot repair pass uses for later
+                            # writes, so refresh_gdata keeps its pre-T6.1
+                            # behaviour (holds the connection) rather than
+                            # expiring/reloading the whole repair batch.
                             gdata_results = await refresh_gdata(
                                 session,
                                 need_gdata_pairs,
@@ -534,6 +625,17 @@ async def repair_cold_archives(
                         new_p.parent.mkdir(parents=True, exist_ok=True)
                         os.replace(old_p, new_p)
                         gallery.storage_path = expected_storage_path
+                        gallery.path_hash = path_hash(new_p)
+                        # Keep the tier in step with the rewritten archive path
+                        # (a portable ``cold:`` path has no real root to match).
+                        sync_storage_tier(
+                            gallery,
+                            expected_storage_path,
+                            cold_roots=[cold_root] if isinstance(cold_root, Path) else None,
+                        )
+                        duplicates_updated += await update_duplicate_records_for_rename(
+                            session, raw_path, expected_storage_path
+                        )
                         repaired_count += 1
                         logger.info(
                             "[SUCCESS] Renamed on disk and updated DB for Gallery ID %d",
@@ -634,6 +736,13 @@ async def repair_cold_archives(
                         new_p.parent.mkdir(parents=True, exist_ok=True)
                         os.replace(old_p, new_p)
                         gallery.storage_path = expected_storage_path
+                        gallery.path_hash = path_hash(new_p)
+                        # The renamed local copy may have left a cold root, so
+                        # clear/fill ``cold_at`` from the new path's tier.
+                        sync_storage_tier(gallery, expected_storage_path)
+                        duplicates_updated += await update_duplicate_records_for_rename(
+                            session, raw_path, expected_storage_path
+                        )
                         local_repaired_count += 1
                         logger.info(
                             "[SUCCESS] Renamed local path and updated DB for Gallery ID %d",
@@ -681,6 +790,7 @@ async def repair_cold_archives(
         "local_skipped_missing_source": local_skipped_missing_source,
         "local_skipped_conflict": local_skipped_conflict,
         "local_skipped_error": local_skipped_error,
+        "duplicate_records_updated": duplicates_updated,
     }
 
     logger.info("================ Summary ================")

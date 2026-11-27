@@ -7,12 +7,17 @@ import time
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...db.models import FavoriteItem, Gallery
-from ...services.eh_client import EhClientError, EhSearchResult, SearchGallery
+from ...services.eh_client import (
+    EhClientError,
+    EhSearchResult,
+    SearchGallery,
+    normalize_jump,
+    normalize_seek,
+)
+from ...services.tag_translation import translated_tag
 from ..core.eh_client_manager import EhClientManager
 from ..core.uow import UnitOfWork
 from ..dependencies import (
@@ -88,11 +93,24 @@ def _search_cache_key(
     next_cursor: str | None,
     list_type: str = "search",
     tl: int | None = None,
-) -> tuple[str, str, str, str, str, str]:
+    prev_cursor: str | None = None,
+    jump: str | None = None,
+    seek: str | None = None,
+) -> tuple[str, str, str, str, str, str, str, str, str]:
     rating = "" if min_rating is None else str(min_rating)
     cats = "" if f_cats is None else str(f_cats)
     tl_key = "" if list_type != "toplist" or tl is None else str(tl)
-    return (q or "", cats, rating, next_cursor or "", list_type or "search", tl_key)
+    return (
+        q or "",
+        cats,
+        rating,
+        next_cursor or "",
+        list_type or "search",
+        tl_key,
+        prev_cursor or "",
+        jump or "",
+        seek or "",
+    )
 
 
 def _search_cache_get(key: tuple[str, ...]) -> dict[str, Any] | None:
@@ -135,49 +153,40 @@ def _gallery_payload(item: SearchGallery) -> dict[str, Any]:
         "category": item.category,
         "pages": item.pages,
         "rating": item.rating,
+        "tags": [
+            {
+                "namespace": tag["namespace"],
+                "name": tag["name"],
+                "display": translated_tag(tag["namespace"], tag["name"])[1],
+            }
+            for tag in item.tags
+        ],
+        "posted": item.posted,
+        "uploader": item.uploader,
     }
 
 
 async def attach_search_badges(
     session: Any, items: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """JOIN local ``galleries.gid`` / ``favorite_items.gid`` onto search rows."""
+    """JOIN local library / favorites / download task state onto search rows."""
     gids = [int(it["gid"]) for it in items if it.get("gid") is not None]
     if not gids:
         return items
-    gal_rows = (
-        await session.execute(
-            select(Gallery.gid, Gallery.id).where(
-                Gallery.gid.in_(gids),
-                Gallery.trashed.is_(False),
-            )
-        )
-    ).all()
-    library: dict[int, int] = {}
-    for gid, gallery_id in gal_rows:
-        if gid is None:
-            continue
-        library[int(gid)] = int(gallery_id)
-    fav_rows = (
-        await session.execute(
-            select(FavoriteItem.gid, FavoriteItem.favcat).where(FavoriteItem.gid.in_(gids))
-        )
-    ).all()
-    favs: dict[int, int] = {}
-    for gid, favcat in fav_rows:
-        if gid is None:
-            continue
-        gid_i = int(gid)
-        if gid_i not in favs:
-            favs[gid_i] = int(favcat)
+    # ``local_gallery_status`` is the single source of truth shared with
+    # ``/api/eh/status`` and the online detail endpoint.
+    from .eh_online import local_gallery_status
+
+    status = await local_gallery_status(session, gids)
     for it in items:
-        gid = int(it["gid"])
-        gallery_id = library.get(gid)
-        it["in_library"] = gallery_id is not None
-        it["gallery_id"] = gallery_id
-        it["favorited"] = gid in favs
-        it["favcat"] = favs.get(gid)
-        it["downloaded"] = gallery_id is not None
+        info = status.get(int(it["gid"]), {})
+        it["in_library"] = bool(info.get("in_library"))
+        it["gallery_id"] = info.get("gallery_id")
+        it["favorited"] = bool(info.get("favorited"))
+        it["favcat"] = info.get("favcat")
+        it["downloaded"] = it["in_library"]
+        download = info.get("download") or {}
+        it["download_status"] = download.get("status")
     return items
 
 
@@ -201,6 +210,9 @@ async def eh_search(
     category: str | None = None,
     min_rating: float | None = Query(default=None, ge=0, le=5),
     next_cursor: str | None = Query(default=None, alias="next"),
+    prev_cursor: Annotated[str | None, Query(alias="prev")] = None,
+    jump: str | None = None,
+    seek: str | None = None,
     list_type: Annotated[str, Query(alias="list")] = "search",
     tl: int | None = None,
     session: AsyncSession = Depends(get_session),  # noqa: B008
@@ -228,9 +240,45 @@ async def eh_search(
                 raise HTTPException(status_code=422, detail="invalid next cursor")
     else:
         next_cursor = None
+    if prev_cursor:
+        prev_cursor = str(prev_cursor).strip()
+        if kind == "toplist":
+            if not _TOPLIST_CURSOR_RE.fullmatch(prev_cursor) or not (
+                0 <= int(prev_cursor) < 200
+            ):
+                raise HTTPException(status_code=422, detail="invalid prev cursor")
+        else:
+            if not _NEXT_CURSOR_RE.fullmatch(prev_cursor):
+                raise HTTPException(status_code=422, detail="invalid prev cursor")
+    else:
+        prev_cursor = None
+    if next_cursor and prev_cursor:
+        raise HTTPException(status_code=422, detail="next and prev are mutually exclusive")
+    try:
+        jump = normalize_jump(jump)
+        seek = normalize_seek(seek)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if jump and seek:
+        raise HTTPException(status_code=422, detail="jump and seek are mutually exclusive")
+    if jump or seek:
+        if kind == "toplist":
+            raise HTTPException(
+                status_code=422, detail="toplist uses page cursors, not date jump"
+            )
+        if not (next_cursor or prev_cursor):
+            raise HTTPException(status_code=422, detail="date jump requires a cursor")
     f_cats = parse_category_param(category)
     key = _search_cache_key(
-        q.strip() if q else "", f_cats, min_rating, next_cursor, kind, tl
+        q.strip() if q else "",
+        f_cats,
+        min_rating,
+        next_cursor,
+        kind,
+        tl,
+        prev_cursor,
+        jump,
+        seek,
     )
     payload = _search_cache_get(key)
     if payload is None:
@@ -242,8 +290,11 @@ async def eh_search(
                     f_cats=f_cats,
                     min_rating=min_rating,
                     next_cursor=next_cursor,
+                    prev_cursor=prev_cursor,
                     list_type=kind,
                     tl=tl,
+                    jump=jump,
+                    seek=seek,
                 )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -253,6 +304,7 @@ async def eh_search(
             "state": result.state,
             "items": _result_items(result),
             "next": result.next_cursor,
+            "prev": result.prev_cursor,
         }
         ttl = _SEARCH_TTL_OK if result.state in {"ok", "empty"} else _SEARCH_TTL_ERR
         _search_cache_set(key, payload, ttl)
@@ -276,9 +328,12 @@ async def eh_search(
         "state": state,
         "items": items,
         "next": payload.get("next"),
+        "prev": payload.get("prev"),
         "q": q or "",
         "category": category,
         "min_rating": min_rating,
         "list": kind,
         "tl": tl,
+        "jump": jump,
+        "seek": seek,
     }

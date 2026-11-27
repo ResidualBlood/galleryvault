@@ -18,9 +18,9 @@ GalleryVault reads export directories and metadata from common Ehviewer-family c
 | **EhViewer-Apple (iOS / macOS)** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Direct ingestion of mobile exports |
 | **Ehviewer_OHOS (HarmonyOS)** | Full Support | `.ehviewer` (SpiderInfo V1/V2) | Full export format compatibility |
 | **JHenTai (Flutter Multi-platform)** | Page downloads | Gallery-root `metadata` JSON | Reads `{gid} - {title}/metadata` from page-by-page downloads; archive unpack dirs with `ametadata` are **not** scanned |
-| **Tachiyomi / Mihon / Panels** | Protocol Integration | OPDS Catalog (`/api/opds`) | Connects via HTTP Basic authentication for remote browsing and reading |
-| **Generic CBZ / CBR Archives** | Standard Support | `ComicInfo.xml` / filename prefix | Recognizes `gid-title.cbz` formats and embedded metadata schemas |
-| **Generic 7z** | Standard Support | Image members only | py7zr; per-page in-memory extract, 128MB cap; non-images stay packed |
+| **Tachiyomi / Mihon / Panels** | Protocol Integration | OPDS Catalog (`/api/opds`) and CBZ acquisition links (`/api/galleries/{id}/export.cbz`) | Both endpoints accept HTTP Basic authentication for remote browsing and reading |
+| **Generic CBZ / CBR Archives** | Standard Support | `ComicInfo.xml` / filename prefix | Recognizes `gid-title.cbz` formats and embedded metadata schemas (a numeric prefix needs at least 5 digits to count as a GID); member names are probed as UTF-8 / GBK / cp932 to avoid mojibake in CJK filenames |
+| **Generic 7z** | Standard Support | Image members only | py7zr; scanning reads only the archive member table without extracting the whole archive, counts every image member as a page, and orders pages naturally; reading extracts per page in memory with a 128MB cap; non-images stay packed |
 | **PDF** | Standard Support | Embedded images | Extracts embedded images; images over 128MB are skipped |
 
 ---
@@ -133,7 +133,7 @@ Conventions & Rules:
 
 - `version`: Schema version, fixed integer `1`.
 - `gid` / `token`: Unique gallery identifier and access token. Integer `gid` (`null` if unknown), lowercase hex string `token` (`""` if unknown).
-- `title` / `title_jpn`: Primary title and Japanese title. Pure numeric `title_jpn` values are automatically normalized to `""`.
+- `title` / `title_jpn`: Primary title and Japanese title. Pure numeric `title_jpn` values are automatically normalized to `""`. `title_jpn` is written only when a scanner or the sidecar supplies a Japanese title explicitly; a title guessed from the directory name is never persisted as the Japanese title, and an existing non-empty sidecar value is never overwritten (legacy bad values are not cleaned up automatically).
 - `category`: Strictly lowercase (e.g. `"doujinshi"`, `"manga"`, not capitalized).
 - `quality`: Strict enumeration `"original"` | `"resample"` | `null`. Unknown values must be explicitly written as `null` and never omitted (preventing rescans from clearing existing `image_quality` records in the database).
 - `tags`: Formatted as an array of `{"namespace": "artist", "name": "sample"}` objects. The reader remains backward-compatible with legacy `"namespace:name"` strings.
@@ -142,10 +142,12 @@ Conventions & Rules:
 - **Key Completeness**: Always writes all 15 keys, filling missing items with `null` / `[]` / `""`, **never omitting keys**.
 - **No Local Ephemeral State**: Does not persist `local_rating`, `local_note`, local file paths, file signatures, or `archived_at`.
 - **Encoding**: UTF-8 encoding, `indent=2`, `ensure_ascii=False`, trailing newline.
+- **Atomic writes**: Data is written to a temporary file in the same directory, `fsync`ed, then moved into place with `os.replace`, so a crash never leaves a truncated sidecar.
+- **Invalid values**: The reader discards non-positive `gid` values and tokens that do not match the expected format, reading them back as unknown (`null` / `""`).
 
 Reader Compatibility & Scanner Backfill:
 
-- **Backward Compatibility**: Readers seamlessly parse both legacy formats (early download version without `gid`/`token`/`p_tokens` but with `quality`; cold archive version with `gid` but without `quality` and optional `category`; tags as string lists).
+- **Backward Compatibility**: Readers parse legacy formats (early download version without `gid`/`token`/`p_tokens` but with `quality`; cold archive version with `gid` but without `quality` and optional `category`; tags as string lists). Missing attributes are normalized with defaults or fallbacks.
 - **Precedence**: Field precedence follows `sidecar > ComicInfo.xml > .ehviewer / directory inference` (sidecar title and tags override ComicInfo). However, a `gid` extracted from the filename prefix (e.g., `123456-xxx`) retains highest priority for gallery identification.
 - **Directory Backfill**: After successful ingestion, only directory storages (hot and cold directories) are checked. If the sidecar is missing or lacks any critical key, a full v1 sidecar is automatically generated from current metadata; complete v1 sidecars are skipped to avoid altering filesystem `mtime`.
 - **Read-Only Archives**: Compressed archive packages (CBZ, CBR, 7z, PDF) are strictly treated as read-only and are never modified or repacked during library scans.
@@ -157,14 +159,21 @@ Reader Compatibility & Scanner Backfill:
 1. **Bare numeric/title directories without `.ehviewer`** (e.g. `123456-Title/`):
    - The scanner extracts the prefix digits as the `gid`.
    - If cloud credentials are configured, background jobs will backfill covers, categories, and tags via GData APIs.
-  2. **CBZ / CBR Archives & Specifications**:
-    - Filenames prefixed with GID (e.g. `123456-title.cbz`) are indexed immediately. `.cbr` / `.rar` need Python `rarfile` **and** host `unrar` or libarchive; without a native extractor the scan fails.
-   - **ComicInfo.xml Compatibility & Writer Truncation**: Embedded `ComicInfo.xml` metadata is parsed to extract titles, authors, and tag namespaces. During ingestion, overlong `Writer` tags are automatically truncated to 128 characters to prevent database column overflow errors from halting ingestion.
-   - **243-Byte Filename Truncation Standard**: When generating or managing CBZ archives, GalleryVault replaces legacy character-based truncation with Linux ext4 byte-level rules. CBZ base filenames are clamped to 243 bytes, leaving sufficient headroom for the temporary `.cbz.partial` suffix (12 bytes) to strictly stay within the ext4 255-byte limit. Directory names are capped at 247 bytes. This completely resolves `[Errno 36] File name too long` exceptions caused by CJK multi-byte characters and overlong titles.
+2. **CBZ / CBR Archives & Specifications**:
+   - Filenames prefixed with GID (e.g. `123456-title.cbz`) are indexed immediately. `.cbr` / `.rar` need Python `rarfile` and host `unrar` or libarchive; without a native extractor the scan fails.
+   - **ComicInfo.xml Compatibility & Writer Truncation**: Embedded `ComicInfo.xml` metadata is parsed to extract titles, authors, and tag namespaces. During ingestion, overlong `Writer` tags are automatically truncated to 128 characters to prevent database column overflow errors.
+   - **Filename & Directory Constraint Matrix**:
+     | Target | Byte Limit | Description |
+     | :--- | :--- | :--- |
+     | CBZ Base Filename | 243 bytes | Leaves 12 bytes headroom for temporary `.cbz.partial` staging suffix, ensuring total name ≤ 255 bytes |
+     | Staging Suffix Headroom | 12 bytes | Reserved for intermediate state file `.cbz.partial` |
+     | Intermediate Directory Name | 247 bytes | Applies to directory paths across storage levels |
+
+     When generating or renaming CBZ archives, the system applies these UTF-8 byte boundary truncation rules to prevent filesystem `[Errno 36] File name too long` errors. Existing archives with overlong names can be repaired using the script detailed in [Deployment Guide → Offline Maintenance & Repair Utilities](Deployment-EN#offline-maintenance--repair-utilities).
 3. **Galleries without a GID**:
-    - Fully browsable and readable locally, with support for star ratings and custom reading lists.
-    - Without a persistent GID, these entries cannot participate in cloud sync, re-upload update tracking, or cross-GID duplicate resolution.
+   - Fully browsable and readable locally, with support for star ratings and custom reading lists.
+   - Without a persistent GID, these entries cannot participate in cloud sync, re-upload update tracking, or cross-GID duplicate resolution.
 4. **7z / PDF**:
-    - `.7z` indexes image members only and opens pages from memory (solid archives stay per-page; earlier members do not count toward the cap). Uncompressed page size is capped at **128MB**; oversize pages are refused.
-    - `.pdf` extracts embedded images; images over 128MB are skipped without aborting the scan. Galleries with no extractable images are skipped with a warning.
-    - Both formats stay packed in the library tree; scans never unpack them onto disk.
+   - `.7z` indexes image members only and opens pages from memory (solid archives stay per-page; earlier members do not count toward the cap). Uncompressed page size is capped at **128MB**; oversize pages are refused.
+   - `.pdf` extracts embedded images; images over 128MB are skipped without aborting the scan. Galleries with no extractable images are skipped with a warning logged.
+   - Both formats stay packed in the library tree; scans never unpack them onto disk.

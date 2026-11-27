@@ -1,0 +1,253 @@
+[importlinter]
+root_package = galleryvault
+
+[importlinter:contract:1]
+name = Services, db and scanners must not import the app assembly
+type = forbidden
+source_modules =
+    galleryvault.services
+    galleryvault.db
+    galleryvault.scanners
+    galleryvault.metadata
+forbidden_modules =
+    galleryvault.app.routers
+    galleryvault.app.lifespan
+    galleryvault.app.main
+
+[importlinter:contract:2]
+name = The database layer must not import services
+type = forbidden
+# Direct imports only: db -> config -> services is a config layering concern,
+# not a db -> services dependency.
+allow_indirect_imports = true
+source_modules =
+    galleryvault.db
+forbidden_modules =
+    galleryvault.services
+
+# ---------------------------------------------------------------------------
+# Contract slots for the B9-B11 service splits (T9.0a).
+# Slots are inert ordering anchors: they register no contract by themselves.
+# Future batches append their contract section below the matching slot.
+#
+# slot: download
+#   Download service split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:download-no-facade-backref]
+name = download package must not import its legacy facade
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.download
+forbidden_modules =
+    galleryvault.services.download_worker
+
+# slot: library
+#   Library service split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:library-usecases-injected]
+name = library listing/deletion use-cases take collaborators by injection
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.library.listing
+    galleryvault.services.library.deletion
+forbidden_modules =
+    galleryvault.app.state
+    galleryvault.app.dependencies
+
+# slot: reading
+#   Reading service split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:reading-usecases-injected]
+name = reading use-cases take collaborators by injection
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.reading
+forbidden_modules =
+    galleryvault.app.state
+    galleryvault.app.dependencies
+
+# slot: favorites
+#   Favorites service split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+# slot: eh
+#   EH client split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:eh-parsers-pure]
+name = eh parsers are pure
+type = forbidden
+source_modules =
+    galleryvault.services.eh.parsers
+forbidden_modules =
+    galleryvault.services.eh_client
+    galleryvault.app
+    galleryvault.db
+
+[importlinter:contract:eh-single-session]
+name = eh feature modules must not import the legacy client facade
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.eh.session
+    galleryvault.services.eh.gallery
+    galleryvault.services.eh.search
+    galleryvault.services.eh.favorites
+    galleryvault.services.eh.archive
+    galleryvault.services.eh.images
+forbidden_modules =
+    galleryvault.services.eh_client
+# slot: cold
+#   Cold archive split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:cold-no-facade-backref]
+name = cold package must not import its legacy facade
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.cold
+forbidden_modules =
+    galleryvault.services.cold_archive
+
+# slot: maintain
+#   Maintenance service split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:maintain-no-facade-backref]
+name = maintain package must not import its legacy facades
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.maintain
+forbidden_modules =
+    galleryvault.services.updates_worker
+    galleryvault.services.favorites_worker
+
+# slot: edge
+#   Edge/telegram split lands its contract below this marker.
+#   Keep the marker line unchanged; batched writers depend on it as an anchor.
+#   The slot adds no constraint until a contract section follows it.
+
+[importlinter:contract:favorites-no-facade-backref]
+name = favorites cover_cache/poll/counts must not import the legacy worker facade
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.favorites.cover_cache
+    galleryvault.services.favorites.poll
+    galleryvault.services.favorites.counts
+forbidden_modules =
+    galleryvault.services.favorites_worker
+
+# ---------------------------------------------------------------------------
+# Domain internals are private (T11.3).  A domain package may be imported by
+# the other domains and by the router layer, but only through its public
+# package surface: importing ``galleryvault.services.<domain>.<internal>``
+# from outside the domain is forbidden.  Indirect imports are allowed so the
+# contracts only police the import statements written in the source modules.
+# ---------------------------------------------------------------------------
+
+[importlinter:contract:download-internals-private]
+name = download internals are private
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.library
+    galleryvault.services.reading
+    galleryvault.services.favorites
+    galleryvault.services.eh
+    galleryvault.services.cold
+    galleryvault.services.maintain
+    galleryvault.app.routers
+forbidden_modules =
+    galleryvault.services.download.*
+
+[importlinter:contract:library-internals-private]
+name = library internals are private
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.download
+    galleryvault.services.reading
+    galleryvault.services.favorites
+    galleryvault.services.eh
+    galleryvault.services.cold
+    galleryvault.services.maintain
+    galleryvault.app.routers
+forbidden_modules =
+    galleryvault.services.library.*
+
+[importlinter:contract:reading-internals-private]
+name = reading internals are private
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.download
+    galleryvault.services.library
+    galleryvault.services.favorites
+    galleryvault.services.eh
+    galleryvault.services.cold
+    galleryvault.services.maintain
+    galleryvault.app.routers
+forbidden_modules =
+    galleryvault.services.reading.*
+
+[importlinter:contract:favorites-internals-private]
+name = favorites internals are private
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.download
+    galleryvault.services.library
+    galleryvault.services.reading
+    galleryvault.services.eh
+    galleryvault.services.cold
+    galleryvault.services.maintain
+    galleryvault.app.routers
+forbidden_modules =
+    galleryvault.services.favorites.*
+
+[importlinter:contract:eh-internals-private]
+name = eh internals are private
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.download
+    galleryvault.services.library
+    galleryvault.services.reading
+    galleryvault.services.favorites
+    galleryvault.services.cold
+    galleryvault.services.maintain
+    galleryvault.app.routers
+forbidden_modules =
+    galleryvault.services.eh.*
+
+[importlinter:contract:edge-not-imported]
+name = edge adapters are not imported by core or secondary domains
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    galleryvault.services.download
+    galleryvault.services.library
+    galleryvault.services.reading
+    galleryvault.services.favorites
+    galleryvault.services.eh
+    galleryvault.services.cold
+    galleryvault.services.maintain
+forbidden_modules =
+    galleryvault.services.tgbot
+    galleryvault.services.telegram_bot
+    galleryvault.app.routers.opds

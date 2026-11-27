@@ -13,20 +13,82 @@ from urllib.parse import parse_qs, urlparse
 from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from ..auth import verify_login_password, verify_session
+from ..auth import ensure_runtime_auth_secret, verify_login_password, verify_session
 from ..logging import log_extra
+from ..services import api_token as api_token_service
 from .dependencies import get_current_settings
 
 logger = logging.getLogger(__name__)
 
 CSRF_COOKIE = "galleryvault_csrf"
 BASIC_AUTH_REALM = 'Basic realm="GalleryVault OPDS"'
+_OPDS_PATH = "/api/opds"
+_EXPORT_CBZ_SUFFIX = "/export.cbz"
+
+# Companion-script Bearer tokens are limited to the read/write endpoints the
+# userscript needs.  Anything else (settings, password changes, token
+# management, arbitrary gallery mutation) must go through the cookie session.
+_BEARER_ALLOWED_ROUTES: frozenset[tuple[str, str]] = frozenset({
+    ("GET", "/api/auth/session"),
+    ("GET", "/api/eh/status"),
+    ("GET", "/api/favorites/categories"),
+    ("POST", "/api/favorites/add"),
+    ("POST", "/api/favorites/remove"),
+    ("POST", "/api/downloads"),
+    ("GET", "/api/downloads"),
+})
+
+# Baseline response headers.  The SPA shell is served by nginx, which sets the
+# same values (frontend/nginx.conf); repeating them here covers direct API
+# access (dev, reverse-proxy bypass, OPDS readers).  The CSP mirrors the nginx
+# policy so it stays compatible with the existing inline <style> block, the
+# external-only script tags and the service worker.
+SECURITY_HEADERS: dict[str, str] = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+    "Content-Security-Policy": (
+        "default-src 'self'; img-src 'self' data: https://ehgt.org "
+        "https://*.ehgt.org https://*.hath.network:* https://e-hentai.org "
+        "https://*.e-hentai.org https://exhentai.org https://*.exhentai.org; "
+        "style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; "
+        "worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "
+        "frame-ancestors 'none'"
+    ),
+}
+
+
+def apply_security_headers(response: Any) -> Any:
+    """Add the baseline security headers unless a handler already set them."""
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return response
+    for name, value in SECURITY_HEADERS.items():
+        if name not in headers:
+            headers[name] = value
+    return response
+
+
+def _is_export_cbz_path(path: str) -> bool:
+    """True for ``/api/galleries/{identifier}/export.cbz`` only."""
+    if not path.endswith(_EXPORT_CBZ_SUFFIX):
+        return False
+    prefix = path[: -len(_EXPORT_CBZ_SUFFIX)].split("/")
+    return (
+        len(prefix) == 4
+        and prefix[1] == "api"
+        and prefix[2] == "galleries"
+        and prefix[3].isdigit()
+    )
 
 
 def _is_basic_auth_route(request: Request) -> bool:
-    if request.method != "GET":
-        return False
-    return request.url.path == "/api/opds"
+    path = request.url.path
+    if request.method == "GET" and path == _OPDS_PATH:
+        return True
+    # OPDS acquisition links (export.cbz) are opened by readers that only know
+    # HTTP Basic, so they must accept Basic auth as well.
+    return request.method in {"GET", "HEAD"} and _is_export_cbz_path(path)
 
 
 def _verify_basic_auth(request: Request, settings: Any) -> bool:
@@ -49,7 +111,56 @@ def _verify_basic_auth(request: Request, settings: Any) -> bool:
     return valid_username and valid_password
 
 
+def _bearer_credential(request: Request) -> tuple[bool, str]:
+    """Return ``(uses_bearer_scheme, token)`` for the Authorization header.
+
+    A bare ``Authorization: Bearer`` (no space or an empty credential) is still
+    the Bearer scheme with an empty token, so callers reject it as an invalid
+    Bearer credential instead of falling back to cookie authentication.
+    """
+    auth_header = request.headers.get("authorization")
+    if not auth_header:
+        return False, ""
+    parts = auth_header.split(None, 1)
+    if not parts or parts[0].lower() != "bearer":
+        return False, ""
+    if len(parts) == 1:
+        return True, ""
+    return True, parts[1].strip()
+
+
+def _is_bearer_allowed(request: Request) -> bool:
+    return (request.method.upper(), request.url.path) in _BEARER_ALLOWED_ROUTES
+
+
+async def _verify_bearer_token(token: str) -> bool:
+    if not token:
+        return False
+    try:
+        metadata = await api_token_service.load_token_metadata()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "api token lookup failed", extra=log_extra(error=type(exc).__name__)
+        )
+        return False
+    return api_token_service.token_matches(token, metadata.get("token_hash"))
+
+
 async def auth_and_csrf_middleware(request: Request, call_next: Any) -> Any:
+    # Workers-disabled deployments never run the startup auth bootstrap; adopt
+    # the DB-persisted session secret before the first authentication check.
+    try:
+        await ensure_runtime_auth_secret()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("session secret unavailable", extra=log_extra(error=type(exc).__name__))
+        return apply_security_headers(JSONResponse(
+            {"detail": "authentication temporarily unavailable"}, status_code=503
+        ))
+    response = await _auth_and_csrf(request, call_next)
+    return apply_security_headers(response)
+
+
+async def _auth_and_csrf(request: Request, call_next: Any) -> Any:
     path = request.url.path
     settings = get_current_settings()
     if path in {"/healthz", "/login", "/logout"}:
@@ -78,11 +189,49 @@ async def auth_and_csrf_middleware(request: Request, call_next: Any) -> Any:
     if not settings.auth_required:
         return await call_next(request)
 
-    authenticated = verify_session(
-        request.cookies.get(settings.auth_cookie_name), settings.auth_secret or ""
+    session_cookie = request.cookies.get(settings.auth_cookie_name)
+    # OPDS/export.cbz keep their existing Basic-auth semantics: an
+    # ``Authorization: Bearer`` header there is still an invalid Basic attempt
+    # (401 + realm) rather than an API-token authentication.
+    bearer_used, bearer_token = (
+        (False, "") if _is_basic_auth_route(request) else _bearer_credential(request)
     )
+    if bearer_used and not bearer_token:
+        logger.info(
+            "authentication failed",
+            extra=log_extra(
+                ip=request.client.host if request.client else "unknown",
+                reason="invalid_bearer_token",
+            ),
+        )
+        return JSONResponse({"detail": "Authentication required"}, status_code=401)
+    # Mixed credentials must never inherit the Bearer CSRF exemption.  When a
+    # session cookie is present the Bearer header is ignored and the request is
+    # processed through the normal cookie path (including full CSRF checks).
+    is_bearer = bearer_used and session_cookie is None
+    if is_bearer:
+        if not await _verify_bearer_token(bearer_token):
+            logger.info(
+                "authentication failed",
+                extra=log_extra(
+                    ip=request.client.host if request.client else "unknown",
+                    reason="invalid_bearer_token",
+                ),
+            )
+            return JSONResponse(
+                {"detail": "Authentication required"},
+                status_code=401,
+            )
+        if not _is_bearer_allowed(request):
+            return JSONResponse(
+                {"detail": "API token is not allowed for this endpoint"},
+                status_code=403,
+            )
+        authenticated = True
+    else:
+        authenticated = verify_session(session_cookie, settings.auth_secret or "")
 
-    if not authenticated and _is_basic_auth_route(request):
+    if not authenticated and not is_bearer and _is_basic_auth_route(request):
         if _verify_basic_auth(request, settings):
             authenticated = True
         else:
@@ -112,8 +261,10 @@ async def auth_and_csrf_middleware(request: Request, call_next: Any) -> Any:
             )
         return RedirectResponse("/login", status_code=303)
 
-    # CSRF / Origin protection for state-changing requests
-    if request.method in {"POST", "PUT", "DELETE", "PATCH"}:
+    # CSRF / Origin protection for state-changing requests.  Bearer API tokens
+    # are not cookies, so cross-site requests cannot carry them implicitly;
+    # the whitelist above is the boundary instead.
+    if not is_bearer and request.method in {"POST", "PUT", "DELETE", "PATCH"}:
         session_cookie = request.cookies.get(settings.auth_cookie_name)
         # API routes: Origin / Referer / Sec-Fetch-Site + optional X-CSRF-Token
         if request.url.path.startswith("/api/"):

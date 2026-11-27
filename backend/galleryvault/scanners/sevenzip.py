@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from .archive import MAX_ARCHIVE_PAGE_SIZE, ArchiveScanner, validate_archive_member
+from .base import GalleryMeta
 from .ehviewer import IMAGE_EXTENSIONS
 
 
@@ -79,8 +80,9 @@ class SevenZipScanner(ArchiveScanner):
             raise RuntimeError("7z support requires the 'py7zr' package") from exc
         return py7zr
 
-    def scan(self, path: Path) -> object:
+    def scan(self, path: Path) -> GalleryMeta:
         py7zr = self._py7zr()
+        warnings: list[str] = []
         with py7zr.SevenZipFile(path, mode="r") as archive:
             names = list(archive.getnames() or [])
             for name in names:
@@ -88,13 +90,23 @@ class SevenZipScanner(ArchiveScanner):
             image_names = [
                 name for name in names if Path(name).suffix.casefold() in IMAGE_EXTENSIONS
             ]
-            sizes: dict[str, int] = {}
-            if image_names:
-                sizes = self._image_sizes(archive, image_names)
-            pages = self._pages(list(sizes), sizes)
-            return self._meta(path, pages, {"archive": "7z"})
+            sizes = self._image_sizes(archive, image_names, warnings)
+            # Build pages from the full member list, not from the sizes map:
+            # members whose size cannot be measured (or exceeds the per-page
+            # limit) must still occupy their slot so page count/order stay
+            # aligned with the archive.
+            pages = self._pages(image_names, sizes)
+            return self._meta(path, pages, {"archive": "7z"}, warnings=warnings)
 
-    def _image_sizes(self, archive: object, image_names: list[str]) -> dict[str, int]:
+    def _image_sizes(
+        self, archive: object, image_names: list[str], warnings: list[str] | None = None
+    ) -> dict[str, int]:
+        """Return known uncompressed sizes without decompressing the archive.
+
+        Sizes come from the 7z header (``list()``); members with an unknown or
+        oversized size are left out of the map and reported once, instead of
+        being silently dropped or extracted just to measure them.
+        """
         wanted = set(image_names)
         sizes: dict[str, int] = {}
         list_fn = getattr(archive, "list", None)
@@ -107,24 +119,32 @@ class SevenZipScanner(ArchiveScanner):
                     uncompressed = getattr(item, "uncompressed", None)
                     if uncompressed is None:
                         continue
-                    size = int(uncompressed)
-                    if size > MAX_ARCHIVE_PAGE_SIZE:
+                    try:
+                        size = int(uncompressed)
+                    except (TypeError, ValueError):
                         continue
                     sizes[name] = size
             except Exception:  # noqa: BLE001
                 sizes = {}
-        missing = [name for name in image_names if name not in sizes]
-        for name in missing:
-            reset = getattr(archive, "reset", None)
-            if callable(reset):
-                reset()
-            factory = _CappedWriterFactory(MAX_ARCHIVE_PAGE_SIZE, name)
-            try:
-                archive.extract(targets=[name], factory=factory)
-            except Exception:  # noqa: BLE001, S112
-                continue
-            if factory.writer is not None:
-                sizes[name] = factory.writer.size()
+        unknown_count = 0
+        oversized_count = 0
+        for name in image_names:
+            if name not in sizes:
+                unknown_count += 1
+            elif sizes[name] > MAX_ARCHIVE_PAGE_SIZE:
+                oversized_count += 1
+                del sizes[name]
+        if warnings is not None:
+            if oversized_count:
+                warnings.append(
+                    f"7z: {oversized_count} page(s) exceed the "
+                    f"{MAX_ARCHIVE_PAGE_SIZE}-byte limit and will be rejected on read"
+                )
+            if unknown_count:
+                warnings.append(
+                    f"7z: {unknown_count} page(s) have no measurable size "
+                    "(page count/order preserved)"
+                )
         return sizes
 
     @staticmethod

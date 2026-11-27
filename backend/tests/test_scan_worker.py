@@ -278,6 +278,56 @@ async def test_duplicate_resolver_import_and_sync_duplicates_no_module_error():
 
 
 @pytest.mark.asyncio
+async def test_sync_duplicates_accepts_caller_supplied_mappings():
+    """T5.2: the repository takes plain records, not ``ResolvedGroup`` objects."""
+    from galleryvault.db.repositories.galleries import GalleryRepository
+
+    mock_session = MagicMock()
+    mock_scalars = MagicMock()
+    mock_scalars.all.return_value = []
+    mock_session.scalars = AsyncMock(return_value=mock_scalars)
+    mock_session.flush = AsyncMock()
+    mock_session.add = MagicMock()
+
+    repo = GalleryRepository(mock_session)
+    changed = await repo.sync_duplicates(
+        [
+            {
+                "gid": 1001,
+                "policy": "keep_first",
+                "winner_path": "/lib/1001",
+                "copies": [{"path": "/lib/1001", "key": "k"}],
+            }
+        ]
+    )
+
+    assert changed == 1
+    mock_session.add.assert_called_once()
+    added = mock_session.add.call_args.args[0]
+    # T5.3: the scan result is written to ``duplicate_groups`` now.
+    assert added.kind == "same_gid"
+    assert added.group_key == "1001"
+    assert added.payload["copies"][0]["path"] == "/lib/1001"
+
+
+def test_galleries_ingest_has_no_reverse_import_of_duplicate_resolver():
+    """T5.2: eliminate the db -> services import inversion."""
+    import ast
+    import inspect
+
+    from galleryvault.db.repositories import galleries_ingest
+
+    source = inspect.getsource(galleries_ingest)
+    tree = ast.parse(source)
+    imports = [
+        ast.get_source_segment(source, node) or ""
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+    ]
+    assert all("duplicate_resolver" not in statement for statement in imports)
+
+
+@pytest.mark.asyncio
 async def test_run_scan_duplicate_sync_not_module_not_found(caplog, monkeypatch):
     orig_tm = app_state.task_manager
     orig_session = app_state.session_factory

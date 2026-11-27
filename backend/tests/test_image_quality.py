@@ -19,8 +19,8 @@ from galleryvault.app.routers.galleries import (
 from galleryvault.app.state import app_state
 from galleryvault.config import Settings
 from galleryvault.scanners.base import GalleryMeta
-from galleryvault.services import download_worker
 from galleryvault.services.deletion import remove_superseded_copy
+from galleryvault.services.download import ingest_pump as download_worker
 from galleryvault.services.download_worker import (
     infer_image_quality,
     ingest_downloaded_gallery,
@@ -189,7 +189,7 @@ async def test_ingest_downloaded_gallery_marks_quality_and_removes_old(
         async def ingest(self, galleries):
             ingested.extend(galleries)
 
-    async def _fake_remove(result, old_path, old_pages):
+    async def _fake_remove(result, old_path, old_pages, **_kwargs):
         removed.append((result, old_path, old_pages))
 
     orig_factory = app_state.session_factory
@@ -420,7 +420,7 @@ class _FakeCreateRepo:
         self._task = task
         self.created = None
 
-    def __call__(self, session):
+    def __call__(self, session, **_kwargs):
         self._session = session
         return self
 
@@ -586,7 +586,7 @@ class _FakeRedownloadRepo:
         self._task = task
         self.created = None
 
-    def __call__(self, session):
+    def __call__(self, session, **_kwargs):
         self._session = session
         return self
 

@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import pytest
@@ -104,7 +105,7 @@ def test_sevenzip_scan_extracts_images_only(tmp_path: Path, monkeypatch: pytest.
         assert all(Path(name).suffix.casefold() in IMAGE_EXTENSIONS for name in targets)
 
 
-def test_pdf_without_images_warns(tmp_path: Path) -> None:
+def test_pdf_without_images_is_rejected(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     pytest.importorskip("pypdf")
     from pypdf import PdfWriter
 
@@ -113,6 +114,9 @@ def test_pdf_without_images_warns(tmp_path: Path) -> None:
     writer.add_blank_page(width=72, height=72)
     with path.open("wb") as fh:
         writer.write(fh)
-    meta = PdfScanner().scan(path)
-    assert meta.pages == []
-    assert any("no extractable" in w for w in meta.warnings)
+    with (
+        caplog.at_level(logging.WARNING, logger="galleryvault.scanners.pdf"),
+        pytest.raises(ValueError, match="no image pages"),
+    ):
+        PdfScanner().scan(path)
+    assert sum("no extractable embedded images" in r.message for r in caplog.records) == 1

@@ -1,5 +1,9 @@
 # Local runtime data (not source files) — never commit these.
 library/
+# Frontend source directories that share the name above.
+!frontend/src/views/library/
+!frontend/e2e/fixtures/library/
+!backend/galleryvault/services/library/
 downloads/
 media/
 TEMP/

@@ -1,0 +1,319 @@
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from ...app.dependencies import get_current_settings
+from ...logging import log_extra
+from ..eh_client import FavoriteData
+from ..eh_metadata import refresh_gdata
+from ..messages import (
+    favorites_check_failed,
+    favorites_enqueue_failed,
+    favorites_summary,
+)
+
+# Public surface for the other domains (T11.3): the cover-cache helpers live in
+# ``favorites.cover_cache``, but callers import them from the package so that
+# ``galleryvault.services.favorites.*`` internals stay private.
+from .cover_cache import (
+    _get_background_session_factory as _get_background_session_factory,
+)
+from .cover_cache import favorites_metadata as favorites_metadata
+from .cover_cache import remote_cover_data_batch as remote_cover_data_batch
+
+logger = logging.getLogger(__name__)
+MODES = {"monitor_only", "incremental", "force"}
+
+
+class FavoriteRepository(Protocol):
+    async def known_gids(self, favcat: int) -> set[int]: ...
+    async def existing_gallery_gids(self, gids: list[int]) -> set[int]: ...
+    async def remember(self, favcat: int, item: FavoriteData) -> None: ...
+    async def remember_many(self, favcat: int, items: list[FavoriteData]) -> None: ...
+    async def forget(self, favcat: int, gids: list[int]) -> int: ...
+    async def prune(
+        self, favcat: int, current_gids: set[int], allow_empty: bool = False
+    ) -> int: ...
+    async def checked(self, favcat: int, success: bool) -> None: ...
+    async def category(self, favcat: int) -> Any: ...
+
+
+@dataclass(frozen=True)
+class FavoritesCheckResult:
+    favcat: int
+    found: int
+    new: int
+    downloaded: int
+    failed: int
+
+
+class FavoritesService:
+    def __init__(
+        self, fetcher: Any, repository: FavoriteRepository, queue: Any = None, notifier: Any = None
+    ) -> None:
+        self.fetcher, self.repository, self.queue, self.notifier = (
+            fetcher,
+            repository,
+            queue,
+            notifier,
+        )
+
+    async def check_category(
+        self,
+        favcat: int,
+        *,
+        mode: str = "incremental",
+        retries: int = 3,
+        progress: Any | None = None,
+        archive_enabled: bool = False,
+        archive_max_pages: int = 0,
+        archive_quality: str = "resample",
+        session: Any | None = None,
+    ) -> FavoritesCheckResult:
+        if mode not in MODES:
+            raise ValueError("mode must be monitor_only, incremental, or force")
+        repo = self.repository
+        queue = self.queue
+        if session is not None:
+            if hasattr(repo, "with_session"):
+                repo = repo.with_session(session)
+            if hasattr(queue, "with_session"):
+                queue = queue.with_session(session)
+        cat = await repo.category(favcat)
+        cat_name = getattr(cat, "name", None) if cat is not None else None
+        lang = getattr(self.notifier, "message_lang", "zh") if self.notifier else "zh"
+        items: list[FavoriteData] = []
+        last: Exception | None = None
+        fetched = False
+        attempts = min(max(1, retries), 3)
+        for attempt in range(1, attempts + 1):
+            try:
+                items = await self.fetcher.fetch_favorites(favcat, progress=progress)
+                fetched = True
+                break
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+                logger.warning(
+                    "favorites check attempt failed",
+                    extra=log_extra(
+                        favcat=favcat,
+                        attempt=attempt,
+                        error=type(exc).__name__,
+                    ),
+                )
+        if not fetched:
+            await repo.checked(favcat, False)
+            log_check = getattr(repo, "log_check", None)
+            if log_check:
+                await log_check(favcat, [], attempts, False, type(last).__name__ if last else None)
+            if self.notifier:
+                await self.notifier.send_message(
+                    favorites_check_failed(favcat, cat_name, attempts, lang)
+                )
+            raise RuntimeError(f"favorites check failed after {attempts} attempts") from last
+        known = await repo.known_gids(favcat)
+        unique = {item.gid: item for item in items}
+        candidates = (
+            list(unique.values())
+            if mode == "force"
+            else [item for item in unique.values() if item.gid not in known]
+        )
+        # Deduplicate against the local library: a gallery already present on
+        # disk (e.g. an Ehviewer export under a mounted library root) must not
+        # be downloaded again into the downloads directory.
+        if candidates:
+            local_gids = await repo.existing_gallery_gids(
+                [item.gid for item in candidates]
+            )
+            if local_gids:
+                candidates = [item for item in candidates if item.gid not in local_gids]
+        # Drop rows for gids no longer in the folder (unfavorited / expunged
+        # galleries vanish from the listing) so the recorded set stays in sync
+        # with the cloud — otherwise the scheduled "count unchanged" skip never
+        # fires again and phantom cloud items linger in lists.
+        if getattr(items, "truncated", False):
+            # The listing stopped short of the count in the page header; deleting
+            # the recorded rows it did not mention would drop real favorites.
+            logger.warning(
+                "favorites prune skipped because the listing looks truncated",
+                extra=log_extra(
+                    favcat=favcat,
+                    parsed=len(unique),
+                    cloud=getattr(items, "cloud_count", None),
+                ),
+            )
+        elif getattr(items, "confirmed_empty", False):
+            # The cloud header confirmed the folder is empty on a valid
+            # favorites page: every recorded row is stale.
+            await repo.prune(favcat, set(), allow_empty=True)
+        else:
+            await repo.prune(favcat, set(unique))
+        downloaded = failed = 0
+        failed_gids: set[int] = set()
+        archive_mode = "favorite_archive" if archive_enabled else None
+        archive_sizes: dict[int, int] = {}
+        if archive_enabled and candidates:
+            pairs = [(item.gid, item.token) for item in candidates if item.token]
+            try:
+                if session is not None:
+                    gmeta = await refresh_gdata(session, pairs, client=self.fetcher)
+                else:
+                    from ...app.state import app_state
+
+                    sf = getattr(app_state, "background_session_factory", None) or app_state.session_factory
+                    if sf is not None:
+                        # Fresh session: refresh_gdata releases before network.
+                        async with sf() as sess:
+                            gmeta = await refresh_gdata(sess, pairs, client=self.fetcher)
+                    else:
+                        gmeta = await self.fetcher.fetch_gmetadata(pairs)
+                archive_sizes = {
+                    int(gid): int(meta.get("file_count") or 0)
+                    for gid, meta in gmeta.items()
+                }
+            except Exception as exc:  # noqa: BLE001 - fall back to page-by-page
+                logger.warning(
+                    "favorites archive sizing failed; falling back to page-by-page",
+                    extra=log_extra(favcat=favcat, error=type(exc).__name__),
+                )
+        for item in candidates:
+            if mode == "monitor_only":
+                continue
+            try:
+                if queue is not None:
+                    filecount = archive_sizes.get(item.gid, 0)
+                    use_archive = bool(
+                        archive_mode
+                        and item.token
+                        and (archive_max_pages == 0 or filecount > archive_max_pages)
+                    )
+                    if use_archive:
+                        accepted = await queue.enqueue(
+                            item, mode="favorite_archive", quality=archive_quality
+                        )
+                    else:
+                        default_quality = (
+                            getattr(get_current_settings(), "download_quality", None) or "resample"
+                        )
+                        try:
+                            accepted = await queue.enqueue(item, quality=default_quality)
+                        except TypeError:
+                            accepted = await queue.enqueue(item)
+                    if accepted is False:
+                        # The queue refuses a duplicate: an active
+                        # pending/downloading task already exists for this gid
+                        # (DownloadRepository.create returns None).  The
+                        # gallery is being handled, so this is benign rather
+                        # than a failure — treating it as one would make force
+                        # checks spin forever on the same gid.
+                        logger.debug(
+                            "favorite download already queued",
+                            extra=log_extra(favcat=favcat, gid=item.gid),
+                        )
+                downloaded += 1
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                failed_gids.add(item.gid)
+                logger.warning(
+                    "favorite download enqueue failed",
+                    extra=log_extra(favcat=favcat, gid=item.gid, error=type(exc).__name__),
+                )
+                if self.notifier:
+                    await self.notifier.send_message(
+                        favorites_enqueue_failed(favcat, cat_name, item.gid, lang)
+                    )
+        # A gid whose enqueue failed must not stay recorded as seen: the row
+        # would filter it out of every later incremental candidate set (force
+        # re-offers it, incremental does not).  Drop the "seen" row so the next
+        # incremental check offers the gid again and retries the download.
+        previously_known = failed_gids & known
+        if previously_known:
+            await repo.forget(favcat, sorted(previously_known))
+            logger.info(
+                "favorites enqueue failures forgotten",
+                extra=log_extra(favcat=favcat, forgotten=len(previously_known)),
+            )
+        # Record the folder items as seen only after the enqueue pass: a gid
+        # whose enqueue failed must stay absent from ``known`` so the next
+        # incremental check offers it again instead of silently skipping it.
+        # Galleries already local or in monitor-only mode never needed an
+        # enqueue and are recorded here as successfully handled.
+        seen = [item for item in unique.values() if item.gid not in failed_gids]
+        if seen:
+            await repo.remember_many(favcat, seen)
+        if candidates and mode != "monitor_only":
+            logger.info(
+                "favorite downloads queued",
+                extra=log_extra(
+                    favcat=favcat,
+                    queued=downloaded,
+                    existing=max(0, len(unique) - len(candidates)),
+                    total=len(unique),
+                    failed=failed,
+                ),
+            )
+        await repo.checked(favcat, failed == 0)
+        log_check = getattr(repo, "log_check", None)
+        if log_check:
+            await log_check(favcat, sorted(item.gid for item in candidates), attempts, failed == 0)
+        if self.notifier and candidates:
+            await self.notifier.send_message(
+                favorites_summary(favcat, cat_name, len(candidates), downloaded, lang)
+            )
+        return FavoritesCheckResult(favcat, len(unique), len(candidates), downloaded, failed)
+
+
+async def sync_favorite_categories(
+    *,
+    session: Any,
+    eh_client_mgr: Any,
+    settings: Any | None = None,
+) -> list[dict[str, object]]:
+    """Refresh local favorite category names from ExHentai.
+
+    Shared by ``POST /api/favorites/sync-categories`` and the Telegram
+    ``/fav_sync`` command.  Raises domain errors; the global handler maps them
+    to HTTP responses.
+    """
+    from ...app.exceptions import GalleryVaultError, ValidationError
+    from ...db.models import FavoritesMonitor
+    from ...db.repository import FavoritesRepository
+    from ...db.session import safe_transaction
+
+    settings = settings if settings is not None else get_current_settings()
+    if not settings.exhentai_cookies:
+        raise ValidationError("ExHentai Cookie 未设置")
+    try:
+        async with eh_client_mgr.client_context(settings=settings) as client:
+            names = await client.fetch_favorite_categories()
+        async with safe_transaction(session):
+            if isinstance(names, dict):
+                for favcat, name in names.items():
+                    row = await FavoritesRepository(session).category(favcat)
+                    if row is None:
+                        row = FavoritesMonitor(favcat=favcat)
+                        session.add(row)
+                    row.name = name
+            elif isinstance(names, list):
+                for favcat, name in enumerate(names):
+                    row = await FavoritesRepository(session).category(favcat)
+                    if row is None:
+                        row = FavoritesMonitor(favcat=favcat)
+                        session.add(row)
+                    row.name = name
+    except GalleryVaultError:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "favorite category synchronization failed", extra=log_extra(error=type(exc).__name__)
+        )
+        raise GalleryVaultError(
+            "无法读取 ExHentai 收藏夹分类",
+            code="FAVORITES_SYNC_FAILED",
+            status_code=503,
+        ) from exc
+    if isinstance(names, dict):
+        return [{"favcat": favcat, "name": name} for favcat, name in names.items()]
+    return [{"favcat": favcat, "name": name} for favcat, name in enumerate(names)]

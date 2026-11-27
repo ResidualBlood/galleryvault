@@ -3,22 +3,26 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.models import DownloadTask as DownloadTaskModel
 from ...db.repository import DownloadRepository, GalleryUpdatesRepository
 from ...db.session import safe_transaction
+from ...logging import log_extra
 from ...services.download_prepare import PreparedGallery, prepare_galleries
 from ...services.download_worker import (
     clear_download_cancelled,
     mark_download_cancelled,
     notify_new_task,
+    reset_challenge_count,
 )
 from ...services.messages import GONE_DETAIL
 from ..dependencies import (
@@ -28,12 +32,32 @@ from ..dependencies import (
     get_task_manager,
     resolve_display_title,
     resolve_session,
-    spawn_task,
 )
-from ..schemas import DownloadBatchRequest, DownloadRequest
+from ..schemas import (
+    DownloadBatchRequest,
+    DownloadListResponse,
+    DownloadRequest,
+    DownloadTaskItem,
+)
 from ..state import app_state
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
+
+
+class _DownloadTaskItemOut(DownloadTaskItem):
+    """B2/T2.1: expose the ingest phase until T2.3 updates the shared schema."""
+
+    ingest_status: str | None = None
+
+
+class _DownloadListResponseOut(DownloadListResponse):
+    items: list[_DownloadTaskItemOut]
+
+# How long the delete endpoint waits for a cancelled worker to stop writing
+# before giving up on removing `.gv-<gid>` itself.
+_CANCEL_IDLE_TIMEOUT = 30.0
 
 
 async def _create_from_prepared(
@@ -76,7 +100,7 @@ async def _create_from_prepared(
             )
     try:
         async with safe_transaction(session):
-            task = await DownloadRepository(session).create(
+            task = await DownloadRepository(session, on_new_task=notify_new_task).create(
                 prepared.gid,
                 prepared.token,
                 title,
@@ -196,7 +220,6 @@ async def create_downloads_batch(
         done=queued,
         total=len(body.items),
     )
-    spawn_task(tm.persist_history(), "persist task history")
     return {
         "queued": queued,
         "skipped": skipped,
@@ -207,13 +230,16 @@ async def create_downloads_batch(
     }
 
 
+_DOWNLOAD_STATUSES = frozenset({"pending", "downloading", "success", "failed", "cancelled"})
+
+
 def _row_val(row: Any, key: str, default: Any = None) -> Any:
     if isinstance(row, dict):
         return row.get(key, default)
     return getattr(row, key, default)
 
 
-@router.get("/api/downloads")
+@router.get("/api/downloads", response_model=_DownloadListResponseOut)
 async def list_downloads(
     page: int = 1,
     page_size: int = 24,
@@ -223,6 +249,11 @@ async def list_downloads(
     session = await resolve_session(session, fallback_dep=get_session)
     if page < 1 or not 1 <= page_size <= 500:
         raise HTTPException(status_code=422, detail="invalid pagination")
+    if status is not None and status not in _DOWNLOAD_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"invalid status; expected one of {sorted(_DOWNLOAD_STATUSES)}",
+        )
     try:
         total, rows = await DownloadRepository(session).list_page(page, page_size, status)
     except SQLAlchemyError as exc:
@@ -233,10 +264,20 @@ async def list_downloads(
         title = _row_val(x, "title")
         title_jpn = _row_val(x, "title_jpn")
         gid = _row_val(x, "gid")
+        token = _row_val(x, "token")
+        gallery_id = _row_val(x, "gallery_id")
         is_fallback = bool(_row_val(x, "archive_fallback", False))
+        if gallery_id is not None:
+            cover_url = f"/api/galleries/{int(gallery_id)}/thumb/0"
+        elif gid and token:
+            cover_url = f"/api/favorites/cover?gid={int(gid)}&token={token}"
+        else:
+            cover_url = None
         item: dict[str, Any] = {
             "id": _row_val(x, "id"),
             "gid": gid,
+            "gallery_id": gallery_id,
+            "cover_url": cover_url,
             "title": resolve_display_title(title, title_jpn) or title,
             "status": _row_val(x, "status"),
             "retry_count": _row_val(x, "retry_count", 0),
@@ -249,6 +290,7 @@ async def list_downloads(
             "archive_fallback": is_fallback,
             "archive_status": _row_val(x, "archive_status"),
             "archive_error": _row_val(x, "archive_error"),
+            "ingest_status": _row_val(x, "ingest_status"),
         }
         items.append(item)
 
@@ -299,7 +341,6 @@ async def clear_success_downloads(
         done=deleted,
         total=deleted,
     )
-    spawn_task(tm.persist_history(), "persist task history")
     return {"deleted": deleted}
 
 
@@ -316,6 +357,7 @@ async def retry_all_downloads(
 
     for task_id in retried_ids:
         clear_download_cancelled(task_id)
+        reset_challenge_count(task_id)
     if retried_ids:
         notify_new_task()
 
@@ -324,6 +366,34 @@ async def retry_all_downloads(
         "count": len(retried_ids),
         "task_ids": retried_ids,
     }
+
+
+async def _active_task_exists_for_gid(
+    session: AsyncSession,
+    gid: int,
+    *,
+    exclude_id: int,
+) -> bool:
+    """Whether another pending/downloading task already holds ``gid``.
+
+    The partial unique index ``idx_download_tasks_active_gid`` enforces this;
+    checking first turns a raw IntegrityError into a clear 409. Focused unit
+    tests may pass a fake session without ``scalar``; a real AsyncSession
+    always provides it.
+    """
+    scalar = getattr(session, "scalar", None)
+    if scalar is None:
+        return False
+    stmt = (
+        select(DownloadTaskModel.id)
+        .where(
+            DownloadTaskModel.gid == gid,
+            DownloadTaskModel.id != exclude_id,
+            DownloadTaskModel.status.in_(["pending", "downloading"]),
+        )
+        .limit(1)
+    )
+    return await scalar(stmt) is not None
 
 
 @router.post("/api/downloads/{task_id}/retry")
@@ -339,20 +409,28 @@ async def retry_download(
                 raise HTTPException(status_code=404, detail="Download task not found")
             if row.status not in {"failed", "cancelled", "success"}:
                 raise HTTPException(status_code=409, detail="Task is still active")
-            row.status = "pending"
-            row.retry_count = 0
-            row.retry_at = None
-            row.error_message = None
-            row.finished_at = None
-            row.max_retries = 10
+            gid = getattr(row, "gid", None)
+            if gid is not None and await _active_task_exists_for_gid(
+                session, gid, exclude_id=task_id
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="An active download already exists for this gid",
+                )
+            new_status = await DownloadRepository(session).reset_for_retry(row)
     except HTTPException:
         raise
+    except IntegrityError as exc:
+        # Concurrent insert won the race after the pre-check; report the same
+        # conflict instead of a generic database outage.
+        raise db_error(exc) from exc
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
 
     clear_download_cancelled(task_id)
+    reset_challenge_count(task_id)
     notify_new_task()
-    return {"id": task_id, "status": "pending"}
+    return {"id": task_id, "status": new_status}
 
 
 @router.post("/api/downloads/{task_id}/cancel")
@@ -368,8 +446,14 @@ async def cancel_download(
             if row is None:
                 raise HTTPException(status_code=404, detail="Download task not found")
             was_active = row.status in {"pending", "downloading"}
-            if not await DownloadRepository(session).cancel(task_id):
+            status = await DownloadRepository(session).cancel(task_id)
+            if status is None:
                 raise HTTPException(status_code=404, detail="Download task not found")
+            if not was_active:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"status": status, "message": "task already finished"},
+                )
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
@@ -395,11 +479,15 @@ async def delete_download_task(
                 raise HTTPException(status_code=404, detail="Download task not found")
             gid = row.gid
             was_downloading = row.status == "downloading"
-            if not await DownloadRepository(session).delete(task_id):
-                raise HTTPException(status_code=404, detail="Download task not found")
+            # Fail linked update rows *before* deleting the task. The FK is
+            # ON DELETE SET NULL, so deleting first (with autoflush) would clear
+            # gallery_updates.download_task_id and the follow-up UPDATE would
+            # match zero rows, leaving the update stuck in "downloading".
             await GalleryUpdatesRepository(session).mark_failed_by_task(
                 task_id, "download task removed"
             )
+            if not await DownloadRepository(session).delete(task_id):
+                raise HTTPException(status_code=404, detail="Download task not found")
     except HTTPException:
         raise
     except SQLAlchemyError as exc:
@@ -414,8 +502,22 @@ async def delete_download_task(
 
 
 async def _cleanup_download_temp(gid: int) -> None:
-    """Remove a partial download directory (.gv-{gid}) if present."""
+    """Remove a partial download directory (.gv-{gid}) if present.
+
+    Cancellation is cooperative, so a still-running worker may be mid-write.
+    Wait for the gid to become idle first; if it does not, leave the directory
+    to the worker's own cancel handler instead of deleting it under a writer.
+    """
     import shutil
+
+    downloader = app_state.downloader
+    wait_idle = getattr(downloader, "wait_idle", None)
+    if callable(wait_idle) and not await wait_idle(gid, timeout=_CANCEL_IDLE_TIMEOUT):
+        logger.warning(
+            "download temp cleanup skipped; worker still active",
+            extra=log_extra(gid=gid),
+        )
+        return
     try:
         settings = get_current_settings()
         temp = Path(settings.download_root) / f".gv-{gid}"

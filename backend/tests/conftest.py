@@ -3,6 +3,7 @@ import hashlib
 import inspect
 import os
 import warnings
+from typing import Any
 
 os.environ.setdefault("GALLERYVAULT_ENABLE_WORKERS", "0")
 
@@ -18,14 +19,22 @@ try:
 except ImportError:
     pass
 
-# Global fast PBKDF2: reduce PBKDF2 HMAC iterations to 1 to eliminate CPU cost in test suite
+# Fast PBKDF2 for the application's own password hashing, to eliminate CPU cost in the
+# test suite. Only calls made from galleryvault.auth are shortened: asyncpg >= 0.32
+# derives the SCRAM-SHA-256 salted password through hashlib.pbkdf2_hmac as well, and
+# rewriting its iteration count breaks database (password) authentication.
 _orig_pbkdf2_hmac = hashlib.pbkdf2_hmac
+_AUTH_MODULE_SUFFIX = "galleryvault/auth.py"
 
 
 def _fast_pbkdf2_hmac(hash_name, password, salt, iterations, dklen=None):
+    frame = inspect.currentframe()
+    caller = frame.f_back.f_code.co_filename if frame and frame.f_back else ""
+    if caller.endswith(_AUTH_MODULE_SUFFIX):
+        iterations = 1
     if dklen is not None:
-        return _orig_pbkdf2_hmac(hash_name, password, salt, 1, dklen)
-    return _orig_pbkdf2_hmac(hash_name, password, salt, 1)
+        return _orig_pbkdf2_hmac(hash_name, password, salt, iterations, dklen)
+    return _orig_pbkdf2_hmac(hash_name, password, salt, iterations)
 
 
 hashlib.pbkdf2_hmac = _fast_pbkdf2_hmac
@@ -34,6 +43,7 @@ import pytest
 
 from galleryvault.app.main import app
 from galleryvault.app.state import app_state
+from galleryvault.services.tasks import default_task_manager
 
 
 @pytest.fixture(autouse=True)
@@ -45,12 +55,37 @@ def _fast_asyncio_sleep(monkeypatch):
         # 仅跳过下载与重试的等待（downloader, download_worker 及后台重试 backoff）
         frame = inspect.currentframe().f_back
         filename = frame.f_code.co_filename if frame else ""
-        if "downloader.py" in filename or "download_worker.py" in filename or (delay >= 1.0 and "test_" not in filename):
+        if (
+            "downloader.py" in filename
+            or "download_worker.py" in filename
+            or "/services/download/" in filename.replace("\\", "/")
+            or (delay >= 1.0 and "test_" not in filename)
+        ):
             await _orig_sleep(0)
             return result
         return await _orig_sleep(delay, result, *args, **kwargs)
 
     monkeypatch.setattr(asyncio, "sleep", _fast_sleep)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_loaded_settings():
+    """Clear the process-wide ``load_settings`` cache around every test.
+
+    ``load_settings`` is ``lru_cache(maxsize=1)`` in production, so the first
+    call in a process wins.  Tests that set environment variables (or replace
+    the runtime ``app_state.settings``) would otherwise observe values cached by
+    an earlier test, and a mutated ``Settings`` instance would leak forwards.
+    Clearing before and after keeps each test's baseline independent without
+    changing production caching behaviour.
+    """
+    from galleryvault.config import load_settings
+
+    load_settings.cache_clear()
+    try:
+        yield
+    finally:
+        load_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +95,24 @@ def _isolate_app_state():
     orig_session_factory = app_state.session_factory
     orig_eh_client = app_state.eh_client
     orig_telegram = app_state.telegram
+    orig_task_manager = app_state.task_manager
+    orig_downloader = app_state.downloader
     orig_extra = dict(app_state.extra)
+
+    # ``TaskManager.task_history`` is mutated in place by ``record_task`` and
+    # the default manager is a process singleton. Snapshot and clear it so
+    # records written by one test
+    # cannot leak into the next one (and cannot depend on test ordering).
+    task_managers = [default_task_manager]
+    if app_state.task_manager is not None and app_state.task_manager is not default_task_manager:
+        task_managers.append(app_state.task_manager)
+    history_snapshots: list[tuple[Any, list[dict[str, Any]]]] = []
+    for manager in task_managers:
+        history = getattr(manager, "task_history", None)
+        if isinstance(history, list):
+            history_snapshots.append((manager, history))
+            history.clear()
+            manager.task_history = history
 
     # 单元测试默认隔离 worker 连接池，避免跨 loop 污染及打到真实 DB
     if app_state.worker_engine is not None:
@@ -78,7 +130,12 @@ def _isolate_app_state():
     app_state.session_factory = orig_session_factory
     app_state.eh_client = orig_eh_client
     app_state.telegram = orig_telegram
+    app_state.task_manager = orig_task_manager
+    app_state.downloader = orig_downloader
     app_state.extra = orig_extra
+    for manager, history in history_snapshots:
+        history.clear()
+        manager.task_history = history
     try:
         from galleryvault.app.main import app
 
@@ -87,6 +144,60 @@ def _isolate_app_state():
         app.state.worker_session_factory = None
     except (ImportError, AttributeError):
         pass
+
+
+@pytest.fixture(autouse=True)
+def _reset_login_throttle_state():
+    """Keep the process-local login counters from leaking across tests.
+
+    ``galleryvault.auth`` keeps the per-IP rate window and the single-admin
+    account backoff in module globals. Without a reset, failures recorded by one
+    test lock out later tests (they see 429 instead of 303/401), so every test
+    starts with a clean throttle. Production logic is untouched; the state is
+    also cleared afterwards so a test cannot pollute anything that follows.
+    """
+    from galleryvault import auth as auth_module
+
+    def _clear() -> None:
+        for name in ("_login_attempts", "_account_failures", "_account_locked_until"):
+            state = getattr(auth_module, name, None)
+            if isinstance(state, dict):
+                state.clear()
+
+    _clear()
+    try:
+        yield
+    finally:
+        _clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_remote_cover_state():
+    """Keep the process-local remote-cover throttle from leaking across tests.
+
+    ``favorites.cover_cache`` remembers per-gid cover failures and holds a
+    single-flight map plus a semaphore bound to the running event loop. Without
+    a reset a negative entry (or a stale loop-bound semaphore) written by one
+    test would change the next test's upstream call count.
+    """
+    def _clear() -> None:
+        from galleryvault.services.favorites import cover_cache
+
+        clear = getattr(cover_cache, "clear_remote_cover_negative", None)
+        if clear is not None:
+            clear()
+        inflight = getattr(cover_cache, "_cover_inflight", None)
+        if isinstance(inflight, dict):
+            inflight.clear()
+        cover_cache._cover_gate = None
+        cover_cache._cover_gate_loop = None
+        cover_cache._cover_next_slot = 0.0
+
+    _clear()
+    try:
+        yield
+    finally:
+        _clear()
 
 
 def bind_runtime(**kwargs):

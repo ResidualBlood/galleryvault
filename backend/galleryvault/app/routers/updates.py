@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...db.repositories.updates import ACTIVE_STATE as UPDATES_ACTIVE_STATE
 from ...db.repository import FavoritesRepository, GalleryUpdatesRepository
 from ...db.session import safe_transaction
 from ...services.updates_worker import detect_gallery_updates, run_gallery_updates
@@ -20,6 +21,7 @@ from ..dependencies import (
     resolve_session,
     spawn_task,
 )
+from ..schemas.updates import GalleryUpdatesListResponse
 
 router = APIRouter()
 
@@ -28,9 +30,11 @@ class UpdateIdsRequest(BaseModel):
     ids: list[int] = Field(default_factory=list)
     archive: bool = False
     quality: str | None = None
+    #: Explicit single-row action: process even a title-only ambiguous match.
+    force: bool = False
 
 
-@router.get("/api/updates")
+@router.get("/api/updates", response_model=GalleryUpdatesListResponse)
 async def gallery_updates_list(
     page: int = 1,
     page_size: int = 24,
@@ -42,25 +46,27 @@ async def gallery_updates_list(
     if state not in {"active", "all", "pending", "downloading", "failed", "ignored"}:
         raise HTTPException(status_code=422, detail="invalid state")
     session = await resolve_session(session)
-    status_filter = None
     if state == "active":
+        # Everything except "ignored": filtered in SQL so ``total`` matches
+        # ``items`` instead of counting rows the page later drops.
+        status_filter: str | None = UPDATES_ACTIVE_STATE
+    elif state == "all":
         status_filter = None
-    elif state != "all":
+    else:
         status_filter = state
     try:
-        total, rows = await GalleryUpdatesRepository(session).list_page(
-            page, page_size, status_filter
-        )
+        repo = GalleryUpdatesRepository(session)
+        total, rows = await repo.list_page(page, page_size, status_filter)
         favcats = [r.favcat for r in rows]
         names = await FavoritesRepository(session).category_names(favcats)
+        # Older fakes / partial repositories may not expose the evidence query.
+        evidence_fn = getattr(repo, "match_evidence", None)
+        evidence = await evidence_fn(rows) if evidence_fn is not None else {}
     except SQLAlchemyError as exc:
         raise db_error(exc) from exc
     items = []
     for row in rows:
-        if status_filter == "ignored":
-            pass
-        elif row.status == "ignored" and state != "all":
-            continue
+        ev = evidence.get(row.id, {})
         items.append(
             {
                 "id": row.id,
@@ -75,6 +81,12 @@ async def gallery_updates_list(
                 "detected_at": row.detected_at.isoformat() if row.detected_at else None,
                 "updated_at": row.updated_at.isoformat() if row.updated_at else None,
                 "cover_url": f"/api/galleries/{row.gallery_id}/thumb/0",
+                "match_source": ev.get("match_source", "title"),
+                "new_title": ev.get("new_title"),
+                "old_page_count": ev.get("old_page_count"),
+                "new_page_count": ev.get("new_page_count"),
+                "ambiguous": bool(ev.get("ambiguous", False)),
+                "ambiguous_count": ev.get("ambiguous_count", 1),
             }
         )
     return {
@@ -88,6 +100,9 @@ async def gallery_updates_list(
 
 @router.post("/api/updates/scan", status_code=202)
 async def gallery_updates_scan() -> dict[str, Any]:
+    tm = get_task_manager()
+    if tm.gallery_updates_state.get("detecting"):
+        raise HTTPException(status_code=409, detail="gallery update scan already running")
     spawn_task(detect_gallery_updates(), "gallery updates detect")
     return {"status": "started"}
 
@@ -121,7 +136,9 @@ async def gallery_updates_run(body: UpdateIdsRequest) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="No update ids provided")
     default_quality = get_current_settings().download_quality or "resample"
     quality = body.quality or default_quality
-    result = await run_gallery_updates(body.ids, archive=body.archive, quality=quality)
+    result = await run_gallery_updates(
+        body.ids, archive=body.archive, quality=quality, force=body.force
+    )
     return {"status": "started", **result}
 
 

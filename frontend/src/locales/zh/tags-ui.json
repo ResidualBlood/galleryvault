@@ -1,0 +1,14 @@
+{
+  "menu": {
+    "copy": "复制原文",
+    "filter": "在本机库筛选",
+    "search": "在线搜索",
+    "exclude": "排除此标签",
+    "close": "关闭菜单"
+  },
+  "copied": "已复制标签",
+  "copyFailed": "复制失败",
+  "showAll": "显示全部 {count} 个标签",
+  "allTags": "全部标签",
+  "more": "+{count}"
+}

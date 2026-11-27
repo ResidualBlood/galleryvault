@@ -1,0 +1,14 @@
+{
+  "menu": {
+    "copy": "Copy raw tag",
+    "filter": "Filter in library",
+    "search": "Search online",
+    "exclude": "Exclude this tag",
+    "close": "Close menu"
+  },
+  "copied": "Tag copied",
+  "copyFailed": "Could not copy",
+  "showAll": "Show all {count} tags",
+  "allTags": "All tags",
+  "more": "+{count}"
+}

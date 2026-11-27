@@ -1,7 +1,7 @@
 """Tests for the shared local-deletion helper (delete_galleries_local).
 
 Covers multi-copy collection, directory vs. single-file (CBZ) deletion,
-partial-failure keeping the DB row, and duplicate_records cleanup after a
+partial-failure keeping the DB row, and ``duplicate_groups`` cleanup after a
 full multi-copy delete.
 """
 
@@ -11,9 +11,19 @@ import pytest
 
 from galleryvault.app.schemas import FilteredDeleteRequest
 from galleryvault.app.state import app_state
-from galleryvault.db.models import DuplicateRecord, Gallery
+from galleryvault.db.models import DuplicateGroup, Gallery
 from galleryvault.services import deletion
 from galleryvault.services.deletion import delete_galleries_local, delete_local_copy
+
+
+class _StubRequest:
+    """Minimal ``Request`` stand-in exposing only the JSON guard fields."""
+
+    def __init__(self, payload: dict | None = None):
+        self._payload = payload or {}
+
+    async def json(self):
+        return self._payload
 
 
 def _session_factory(gallery_rows, dup_rows):
@@ -34,18 +44,20 @@ def _session_factory(gallery_rows, dup_rows):
             self.deleted_dups = []
 
         async def get(self, model, pk):
-            if model is DuplicateRecord:
+            if model is DuplicateGroup:
                 return self.dups.get(int(pk))
             return None
 
         async def scalars(self, statement):
+            if "duplicate_groups" in str(statement):
+                return _Result(list(self.dups.values()))
             return _Result([])
 
         async def delete(self, model):
             if isinstance(model, Gallery):
                 self.deleted_galleries.append(model.id)
-            elif isinstance(model, DuplicateRecord):
-                self.deleted_dups.append(model.gid)
+            elif isinstance(model, DuplicateGroup):
+                self.deleted_dups.append(model.group_key)
 
         async def flush(self):
             pass
@@ -134,12 +146,17 @@ async def test_delete_all_copies_removes_every_copy_and_duplicate_record(tmp_pat
     a.mkdir()
     b.mkdir()
     gallery = _gallery(4, 444, a)
-    dup = DuplicateRecord(
-        gid=444,
+    dup = DuplicateGroup(
+        id=444,
+        kind="same_gid",
+        group_key="444",
         status="open",
-        policy="keep_first",
-        winner_path=str(a),
-        copies=[{"path": str(a)}, {"path": str(b)}],
+        member_gids=[444],
+        payload={
+            "policy": "keep_first",
+            "winner_path": str(a),
+            "copies": [{"path": str(a)}, {"path": str(b)}],
+        },
     )
 
     session = _session_factory([gallery], {444: dup})
@@ -150,7 +167,7 @@ async def test_delete_all_copies_removes_every_copy_and_duplicate_record(tmp_pat
     assert not a.exists() and not b.exists()
     assert results[0]["db_removed"] is True
     assert sorted(results[0]["deleted_paths"]) == sorted([str(a), str(b)])
-    assert session.deleted_dups == [444]
+    assert session.deleted_dups == ["444"]
 
 
 @pytest.mark.asyncio
@@ -162,12 +179,17 @@ async def test_delete_partial_failure_keeps_db_row(tmp_path, monkeypatch):
     bad.mkdir()
     (bad / "locked").write_bytes(b"x")
     gallery = _gallery(5, 555, ok)
-    dup = DuplicateRecord(
-        gid=555,
+    dup = DuplicateGroup(
+        id=555,
+        kind="same_gid",
+        group_key="555",
         status="open",
-        policy="keep_first",
-        winner_path=str(ok),
-        copies=[{"path": str(ok)}, {"path": str(bad)}],
+        member_gids=[555],
+        payload={
+            "policy": "keep_first",
+            "winner_path": str(ok),
+            "copies": [{"path": str(ok)}, {"path": str(bad)}],
+        },
     )
 
     real = delete_local_copy
@@ -189,7 +211,7 @@ async def test_delete_partial_failure_keeps_db_row(tmp_path, monkeypatch):
     assert bad in [Path(p) for p in results[0]["failed_paths"]]
     assert session.deleted_galleries == []
     assert gallery.storage_path == str(bad)
-    assert dup.copies == [{"path": str(bad)}]
+    assert dup.payload["copies"] == [{"path": str(bad)}]
 
 
 @pytest.mark.asyncio
@@ -395,7 +417,9 @@ async def test_delete_filtered_pages_and_chunks(monkeypatch):
 
     try:
         body = FilteredDeleteRequest(q="test", category=None, tags="", tag_mode="or", delete_files=False)
-        result = await delete_galleries_filtered(body)
+        result = await delete_galleries_filtered(
+            body, _StubRequest({"confirm": True, "match_count": 1200})
+        )
         assert result["matched"] == 1200
         assert result["deleted"] == 1200
         assert len(page_calls) == 3  # 1200 rows / 500 per page
@@ -514,7 +538,7 @@ async def test_delete_filtered_with_q_and_read_status(monkeypatch):
             order_by="title_asc",
             delete_files=False,
         )
-        result = await delete_galleries_filtered(body)
+        result = await delete_galleries_filtered(body, _StubRequest())
         assert result["matched"] == 2
         assert result["deleted"] == 2
         # q resolver must have stripped the tag token, leaving only the title keyword
@@ -583,7 +607,7 @@ async def test_delete_filtered_category_not_fav_forwards_exclude_favorited(monke
 
     try:
         body = FilteredDeleteRequest(q="", category="__not_fav__", tags="", tag_mode="or", delete_files=False)
-        result = await delete_galleries_filtered(body)
+        result = await delete_galleries_filtered(body, _StubRequest())
         assert result["matched"] == 0
         assert calls and calls[0] == (None, True)
     finally:

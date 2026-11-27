@@ -5,10 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import select
-
 from galleryvault.app.dependencies import get_settings
-from galleryvault.app.lifespan import update_runtime_settings
 from galleryvault.app.state import app_state
 from galleryvault.db.models import DownloadTask as DownloadTaskModel
 from galleryvault.db.repository import DownloadRepository
@@ -24,11 +21,13 @@ from galleryvault.services.messages import (
     bot_queue,
     bot_resumed,
     bot_retry_all_ok,
+    bot_retry_ingest_ok,
     bot_retry_not_found,
     bot_retry_ok,
     bot_retry_usage,
     bot_text,
 )
+from galleryvault.services.settings_service import update_runtime_settings
 from galleryvault.services.telegram_bot import cancel_download_ident, list_queue_snapshot
 from galleryvault.services.tgbot.context import BotContext
 from galleryvault.services.tgbot.keyboards import inline_button, inline_keyboard
@@ -40,17 +39,6 @@ logger = logging.getLogger(__name__)
 _MANUAL_RETRY_MAX = 10
 
 
-def _reset_task_for_retry(task: DownloadTaskModel) -> None:
-    """Reset a terminal download task so the worker will claim it again."""
-    task.status = "pending"
-    task.retry_count = 0
-    task.retry_at = None
-    task.error_message = None
-    task.finished_at = None
-    task.max_retries = 10
-    clear_download_cancelled(task.id)
-
-
 async def _set_global_paused(ctx: BotContext, value: bool) -> None:
     """Set and persist global download paused setting."""
     s = ctx.settings or app_state.settings or get_settings()
@@ -60,12 +48,11 @@ async def _set_global_paused(ctx: BotContext, value: bool) -> None:
     update_runtime_settings({"global_paused": value})
     try:
         if app_state.session_factory:
+            from galleryvault.db.repositories.settings import patch_settings
             from galleryvault.db.repository import SettingsRepository
 
             async with app_state.session_factory() as session, session.begin():
-                existing = await SettingsRepository(session).get()
-                merged = {**existing, "global_paused": value}
-                await SettingsRepository(session).save(merged)
+                await patch_settings(SettingsRepository(session), {"global_paused": value})
     except Exception as exc:  # noqa: BLE001
         logger.warning(
             "global pause persist failed", extra=log_extra(error=type(exc).__name__)
@@ -141,17 +128,11 @@ async def cmd_retry(ctx: BotContext) -> None:
         return
 
     if arg == "all":
-        count = 0
         async with app_state.session_factory() as session, safe_transaction(session):
-            stmt = select(DownloadTaskModel).where(
-                DownloadTaskModel.status.in_(["failed", "cancelled"])
-            )
-            res = await session.execute(stmt)
-            tasks = list(res.scalars().all())
-            for t in tasks:
-                _reset_task_for_retry(t)
-                count += 1
-        await ctx.reply_text(bot_retry_all_ok(count, lang=ctx.lang))
+            task_ids = await DownloadRepository(session).retry_all()
+        for task_id in task_ids:
+            clear_download_cancelled(task_id)
+        await ctx.reply_text(bot_retry_all_ok(len(task_ids), lang=ctx.lang))
         return
 
     try:
@@ -162,15 +143,19 @@ async def cmd_retry(ctx: BotContext) -> None:
 
     gid: int | None = None
     found = False
+    new_status = "pending"
     async with app_state.session_factory() as session, safe_transaction(session):
         row = await session.get(DownloadTaskModel, task_id)
         if row and row.status in {"failed", "cancelled", "success"}:
-            _reset_task_for_retry(row)
+            new_status = await DownloadRepository(session).reset_for_retry(row)
             gid = row.gid
             found = True
 
     if found:
-        await ctx.reply_text(bot_retry_ok(task_id, gid, lang=ctx.lang))
+        if new_status == "downloading":
+            await ctx.reply_text(bot_retry_ingest_ok(task_id, gid, lang=ctx.lang))
+        else:
+            await ctx.reply_text(bot_retry_ok(task_id, gid, lang=ctx.lang))
     else:
         await ctx.reply_text(bot_retry_not_found(task_id, lang=ctx.lang))
 
@@ -211,12 +196,9 @@ async def cb_queue(ctx: BotContext) -> None:
     elif action == "retry_all":
         if app_state.session_factory:
             async with app_state.session_factory() as session, safe_transaction(session):
-                stmt = select(DownloadTaskModel).where(
-                    DownloadTaskModel.status.in_(["failed", "cancelled"])
-                )
-                res = await session.execute(stmt)
-                for t in res.scalars().all():
-                    _reset_task_for_retry(t)
+                task_ids = await DownloadRepository(session).retry_all()
+            for task_id in task_ids:
+                clear_download_cancelled(task_id)
         rows, counts = await list_queue_snapshot()
         text = bot_queue(rows, counts, ctx.lang)
         kb = _build_queue_keyboard(counts, ctx.lang)

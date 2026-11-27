@@ -1,0 +1,61 @@
+{
+  "view": {
+    "label": "View",
+    "grid": "Grid view",
+    "list": "List view",
+    "table": "Table view"
+  },
+  "tags": {
+    "sheetTitle": "Tags",
+    "overlayLabel": "Tag preview",
+    "menuLabel": "Tag menu"
+  },
+  "table": {
+    "select": "Select",
+    "cover": "Cover",
+    "title": "Title",
+    "category": "Category",
+    "tags": "Tags",
+    "uploader": "Uploader",
+    "pages": "Pages",
+    "size": "Size",
+    "rating": "Rating",
+    "posted": "Posted",
+    "progress": "Progress",
+    "status": "Status",
+    "actions": "Actions"
+  },
+  "sort": {
+    "asc": "{column}: ascending",
+    "desc": "{column}: descending",
+    "none": "{column}: not sorted"
+  },
+  "grid": {
+    "pages": "{count}P",
+    "progress": "{current}/{total}P",
+    "tagsLabel": "Tag preview",
+    "readNow": "Read"
+  },
+  "list": {
+    "pages": "{count}P",
+    "progress": "{current}/{total}P",
+    "empty": "—",
+    "uploader": "Uploader {name}",
+    "artist": "Artist {name}",
+    "language": "Language {name}",
+    "readNow": "Read"
+  },
+  "status": {
+    "favorited": "Favourited",
+    "notFavorited": "Not favourited",
+    "inLibrary": "In library",
+    "download": "Download status",
+    "unread": "Unread",
+    "read": "Read"
+  },
+  "rating": {
+    "label": "Rating {value}",
+    "none": "No rating"
+  },
+  "loadedAll": "All items loaded"
+}
