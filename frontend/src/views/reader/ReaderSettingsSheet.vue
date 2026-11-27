@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, useId, watch } from "vue";
 import Button from "@/components/ui/Button.vue";
 import IconButton from "@/components/ui/IconButton.vue";
 import Input from "@/components/ui/Input.vue";
@@ -83,13 +83,73 @@ function onMode(value: string): void {
 function onFit(value: string): void {
   emit("fit", value as ReaderFit);
 }
+
+const root = ref<HTMLDialogElement | null>(null);
+const sheet = ref<HTMLElement | null>(null);
+const titleId = useId();
+let pressedOutside = false;
+
+watch(
+  () => props.open,
+  async (open) => {
+    if (open) {
+      await nextTick();
+      const dialog = root.value;
+      if (dialog && !dialog.open) {
+        dialog.showModal();
+        dialog.dataset.gvModal = "";
+      }
+    } else {
+      const dialog = root.value;
+      if (dialog?.open) {
+        delete dialog.dataset.gvModal;
+        dialog.close();
+      }
+    }
+  },
+  { immediate: true },
+);
+
+function onCancel(event: Event): void {
+  event.preventDefault();
+  emit("close");
+}
+
+function outside(event: MouseEvent): boolean {
+  const rect = sheet.value?.getBoundingClientRect();
+  if (!rect) return false;
+  return (
+    event.clientX < rect.left ||
+    event.clientX > rect.right ||
+    event.clientY < rect.top ||
+    event.clientY > rect.bottom
+  );
+}
+
+function onPointerDown(event: MouseEvent): void {
+  pressedOutside = outside(event);
+}
+
+function onPointerUp(event: MouseEvent): void {
+  if (pressedOutside && outside(event)) emit("close");
+  pressedOutside = false;
+}
 </script>
 
 <template>
-  <div v-if="open" class="reader-settings" data-testid="reader-settings-panel" @click.self="emit('close')">
-    <section class="reader-settings__sheet" role="dialog" aria-modal="true" :aria-label="title">
+  <dialog
+    v-if="open"
+    ref="root"
+    class="reader-settings"
+    data-testid="reader-settings-panel"
+    :aria-labelledby="titleId"
+    @cancel="onCancel"
+    @pointerdown="onPointerDown"
+    @pointerup="onPointerUp"
+  >
+    <section ref="sheet" class="reader-settings__sheet">
       <header class="reader-settings__header">
-        <h2 class="reader-settings__title">{{ title }}</h2>
+        <h2 :id="titleId" class="reader-settings__title">{{ title }}</h2>
         <IconButton
           name="close"
           size="lg"
@@ -153,19 +213,40 @@ function onFit(value: string): void {
 
       <p class="reader-settings__shortcuts">{{ shortcuts }}</p>
     </section>
-  </div>
+  </dialog>
 </template>
 
 <style scoped>
 .reader-settings {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 6;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: var(--gv-space-3);
+  border: 0;
+  background: transparent;
+  color: var(--gv-color-on-surface);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.reader-settings[open] {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: var(--gv-space-3);
+}
+
+.reader-settings:modal {
+  overscroll-behavior: contain;
+}
+
+.reader-settings::backdrop {
   background: color-mix(in srgb, var(--gv-color-scrim) 56%, transparent);
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .reader-settings__sheet {

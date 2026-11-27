@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 import IconButton from "@/components/ui/IconButton.vue";
@@ -18,49 +18,87 @@ const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 
 const { t } = useI18n();
+const root = ref<HTMLDialogElement | null>(null);
 const panel = ref<HTMLElement | null>(null);
-const triggers = () => document.documentElement.classList;
+const host = ref<string | HTMLElement>("body");
+let pressedOutside = false;
 
-function close(): void {
-  emit("close");
-}
-
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape" && props.open) close();
+function modalHost(): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  const open = document.querySelectorAll<HTMLElement>("[data-gv-modal]");
+  return open.length ? open[open.length - 1] : null;
 }
 
 watch(
   () => props.open,
   async (open) => {
-    triggers().toggle("gv-nav-sheet-open", open);
     if (open) {
+      host.value = modalHost() ?? "body";
       await nextTick();
-      panel.value?.focus();
+      const dialog = root.value;
+      if (dialog && !dialog.open) {
+        dialog.showModal();
+        dialog.dataset.gvModal = "";
+      }
+    } else {
+      const dialog = root.value;
+      if (dialog?.open) {
+        delete dialog.dataset.gvModal;
+        dialog.close();
+      }
     }
   },
+  { immediate: true },
 );
 
-onMounted(() => document.addEventListener("keydown", onKeydown));
-onBeforeUnmount(() => {
-  document.removeEventListener("keydown", onKeydown);
-  triggers().remove("gv-nav-sheet-open");
-});
+function close(): void {
+  emit("close");
+}
+
+function onCancel(event: Event): void {
+  event.preventDefault();
+  close();
+}
+
+function outside(event: MouseEvent): boolean {
+  const rect = panel.value?.getBoundingClientRect();
+  if (!rect) return false;
+  return (
+    event.clientX < rect.left ||
+    event.clientX > rect.right ||
+    event.clientY < rect.top ||
+    event.clientY > rect.bottom
+  );
+}
+
+function onPointerDown(event: MouseEvent): void {
+  pressedOutside = outside(event);
+}
+
+function onPointerUp(event: MouseEvent): void {
+  if (pressedOutside && outside(event)) close();
+  pressedOutside = false;
+}
+
+function onAfterLeave(): void {
+  host.value = "body";
+}
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="nav-sheet">
-      <div v-if="open" class="nav-sheet" data-testid="nav-sheet">
-        <div class="nav-sheet__scrim" @click="close" />
-        <section
-          ref="panel"
-          class="nav-sheet__panel"
-          role="dialog"
-          aria-modal="true"
-          :aria-label="t('app.nav.aria')"
-          data-testid="nav-sheet-panel"
-          tabindex="-1"
-        >
+  <Teleport :to="host">
+    <Transition name="nav-sheet" @after-leave="onAfterLeave">
+      <dialog
+        v-if="open"
+        ref="root"
+        class="nav-sheet"
+        data-testid="nav-sheet"
+        :aria-label="t('app.nav.aria')"
+        @cancel="onCancel"
+        @pointerdown="onPointerDown"
+        @pointerup="onPointerUp"
+      >
+        <section ref="panel" class="nav-sheet__panel" data-testid="nav-sheet-panel">
           <header class="nav-sheet__head">
             <RouterLink to="/browse" class="nav-sheet__brand" @click="close">
               {{ t("app.title") }}
@@ -101,7 +139,7 @@ onBeforeUnmount(() => {
             </div>
           </footer>
         </section>
-      </div>
+      </dialog>
     </Transition>
   </Teleport>
 </template>
@@ -110,14 +148,34 @@ onBeforeUnmount(() => {
 .nav-sheet {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gv-color-on-surface);
+  overflow: hidden;
+  transition-property: display, overlay;
+  transition-duration: var(--gv-motion-duration-medium);
+  transition-timing-function: var(--gv-motion-ease-standard);
+  transition-behavior: allow-discrete;
+}
+
+.nav-sheet[open] {
   display: flex;
 }
 
-.nav-sheet__scrim {
-  position: absolute;
-  inset: 0;
+.nav-sheet:modal {
+  overscroll-behavior: contain;
+}
+
+.nav-sheet::backdrop {
   background: color-mix(in srgb, var(--gv-color-scrim) 60%, transparent);
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .nav-sheet__panel {
@@ -131,6 +189,7 @@ onBeforeUnmount(() => {
   background: var(--gv-color-surface-container-low);
   color: var(--gv-color-on-surface);
   box-shadow: var(--gv-elev-4);
+  overscroll-behavior: contain;
 }
 
 .nav-sheet__head {
@@ -182,14 +241,12 @@ onBeforeUnmount(() => {
   padding: var(--gv-space-2) var(--gv-space-4) 0;
 }
 
-:global(html.gv-nav-sheet-open),
-:global(html.gv-nav-sheet-open body) {
-  overflow: hidden;
-}
-
 .nav-sheet-enter-active,
 .nav-sheet-leave-active {
-  transition: opacity var(--gv-motion-duration-medium) var(--gv-motion-ease-standard);
+  transition-property: opacity, display, overlay;
+  transition-duration: var(--gv-motion-duration-medium);
+  transition-timing-function: var(--gv-motion-ease-standard);
+  transition-behavior: allow-discrete;
 }
 
 .nav-sheet-enter-active .nav-sheet__panel,

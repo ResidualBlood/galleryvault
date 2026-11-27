@@ -168,7 +168,7 @@ test.describe("C3 round 2 fixes @c3r2", () => {
     await page.getByTestId("downloads-add-archive").click();
     const archive = page.getByTestId("downloads-archive-dialog");
     await expect(archive).toBeVisible();
-    await expect(archive).toHaveAttribute("role", "dialog");
+    await expect(archive).toHaveRole("dialog");
     await page.keyboard.press("Escape");
     await expect(archive).toHaveCount(0);
 
