@@ -8,5 +8,6 @@
   "emptyBody": "Content will appear here once available.",
   "errorTitle": "Could not load",
   "errorBody": "Please try again shortly.",
-  "notAvailable": "Not available"
+  "notAvailable": "Not available",
+  "toastRegion": "Notifications"
 }
