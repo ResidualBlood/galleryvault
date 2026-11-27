@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, useId, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from "vue";
 import Button from "@/components/ui/Button.vue";
 import IconButton from "@/components/ui/IconButton.vue";
 import Input from "@/components/ui/Input.vue";
@@ -116,6 +116,8 @@ function onCancel(event: Event): void {
 }
 
 function outside(event: MouseEvent): boolean {
+  const dialog = root.value;
+  if (!dialog || event.target !== dialog) return false;
   const rect = sheet.value?.getBoundingClientRect();
   if (!rect) return false;
   return (
@@ -134,6 +136,14 @@ function onPointerUp(event: MouseEvent): void {
   if (pressedOutside && outside(event)) emit("close");
   pressedOutside = false;
 }
+
+onBeforeUnmount(() => {
+  const dialog = root.value;
+  if (dialog?.open) {
+    delete dialog.dataset.gvModal;
+    dialog.close();
+  }
+});
 </script>
 
 <template>

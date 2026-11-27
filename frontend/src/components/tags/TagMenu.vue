@@ -182,6 +182,8 @@ function excludeTag(): void {
       data-testid="tag-menu"
       :style="position"
       @click.stop
+      @pointerdown.stop
+      @pointerup.stop
       @contextmenu.prevent.stop
     >
       <div class="tag-menu__head">

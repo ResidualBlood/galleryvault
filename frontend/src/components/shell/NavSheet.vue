@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 import IconButton from "@/components/ui/IconButton.vue";
@@ -56,6 +56,8 @@ function onCancel(event: Event): void {
 }
 
 function outside(event: MouseEvent): boolean {
+  const dialog = root.value;
+  if (!dialog || event.target !== dialog) return false;
   const rect = panel.value?.getBoundingClientRect();
   if (!rect) return false;
   return (
@@ -78,6 +80,14 @@ function onPointerUp(event: MouseEvent): void {
 function onAfterLeave(): void {
   resetHost();
 }
+
+onBeforeUnmount(() => {
+  const dialog = root.value;
+  if (dialog?.open) {
+    delete dialog.dataset.gvModal;
+    dialog.close();
+  }
+});
 </script>
 
 <template>

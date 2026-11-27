@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, useId, watch } from "vue";
+import { nextTick, onBeforeUnmount, ref, useId, watch } from "vue";
 import { useModalHost } from "@/composables/useModalHost";
 
 const props = withDefaults(
@@ -59,6 +59,8 @@ function onCancel(event: Event): void {
 }
 
 function outside(event: MouseEvent): boolean {
+  const dialog = root.value;
+  if (!dialog || event.target !== dialog) return false;
   const rect = panel.value?.getBoundingClientRect();
   if (!rect) return false;
   return (
@@ -81,6 +83,14 @@ function onPointerUp(event: MouseEvent): void {
 function onAfterLeave(): void {
   resetHost();
 }
+
+onBeforeUnmount(() => {
+  const dialog = root.value;
+  if (dialog?.open) {
+    delete dialog.dataset.gvModal;
+    dialog.close();
+  }
+});
 </script>
 
 <template>

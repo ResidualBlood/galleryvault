@@ -149,4 +149,33 @@ describe("Dialog", () => {
 
     wrapper.unmount();
   });
+
+  it("ignores presses from a nested overlay outside the panel rect", async () => {
+    const wrapper = mountDialog({ open: true });
+    await flush();
+
+    const dialog = dialogEl();
+    mockPanel();
+    // A Teleport-ed menu lives inside the dialog but outside the panel; its
+    // pointer events bubble here and must not be treated as a backdrop press.
+    const overlay = document.createElement("button");
+    dialog.append(overlay);
+    overlay.dispatchEvent(new MouseEvent("pointerdown", { clientX: 10, clientY: 10, bubbles: true }));
+    overlay.dispatchEvent(new MouseEvent("pointerup", { clientX: 10, clientY: 10, bubbles: true }));
+    expect(wrapper.emitted("close")).toBeUndefined();
+
+    wrapper.unmount();
+  });
+
+  it("closes a still-open dialog when the owner unmounts it", async () => {
+    const wrapper = mountDialog({ open: true });
+    await flush();
+    const dialog = dialogEl();
+    expect(dialog.open).toBe(true);
+
+    wrapper.unmount();
+
+    expect(dialog.open).toBe(false);
+    expect(dialog.dataset.gvModal).toBeUndefined();
+  });
 });

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import Sheet from "@/components/ui/Sheet.vue";
 import { useModalHost } from "@/composables/useModalHost";
 import FavPickerPanel from "./FavPickerPanel.vue";
 import { ensureActionMessages } from "./messages";
@@ -34,11 +33,13 @@ function sync(event?: MediaQueryListEvent): void {
   compact.value = event ? event.matches : Boolean(media?.matches);
 }
 
+// One native dialog for both breakpoints: only its layout changes. Swapping
+// between a Sheet and the desktop dialog while open used to host the new
+// dialog inside the old, soon-to-unmount modal, losing it together with focus.
 watch(
-  () => [props.open, compact.value] as const,
-  async ([open, isCompact]) => {
-    const dialog = desktop.value;
-    if (open && !isCompact) {
+  () => props.open,
+  async (open) => {
+    if (open) {
       refreshHost();
       await nextTick();
       const el = desktop.value;
@@ -46,9 +47,12 @@ watch(
         el.showModal();
         el.dataset.gvModal = "";
       }
-    } else if (dialog?.open) {
-      delete dialog.dataset.gvModal;
-      dialog.close();
+    } else {
+      const dialog = desktop.value;
+      if (dialog?.open) {
+        delete dialog.dataset.gvModal;
+        dialog.close();
+      }
     }
   },
   { immediate: true },
@@ -60,8 +64,11 @@ function onCancel(event: Event): void {
 }
 
 function outside(event: MouseEvent): boolean {
-  const rect = desktop.value?.getBoundingClientRect();
-  if (!rect) return false;
+  const dialog = desktop.value;
+  // Only the dialog itself (backdrop / padding area) counts as outside; a
+  // nested overlay teleported into the dialog stays inside.
+  if (!dialog || event.target !== dialog) return false;
+  const rect = dialog.getBoundingClientRect();
   return (
     event.clientX < rect.left ||
     event.clientX > rect.right ||
@@ -96,32 +103,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <Sheet
-    v-if="compact"
-    :open="open"
-    :title="t('actions.favoriteSelect')"
-    testid="fav-sheet"
-    @close="emit('close')"
-  >
-    <FavPickerPanel
-      v-if="open"
-      :gid="gid"
-      :token="token"
-      :favorited="favorited"
-      :favcat="favcat"
-      :note="note"
-      :disabled="disabled"
-      :heading="false"
-      @done="emit('close')"
-    />
-  </Sheet>
-
-  <Teleport v-else :to="host">
+  <Teleport :to="host">
     <dialog
       v-if="open"
       ref="desktop"
       class="fav-picker"
-      data-testid="fav-picker"
+      :class="{ 'fav-picker--compact': compact }"
+      :data-testid="compact ? 'fav-sheet' : 'fav-picker'"
       :aria-label="t('actions.favoriteSelect')"
       @cancel="onCancel"
       @pointerdown="onPointerDown"
@@ -155,6 +143,15 @@ onBeforeUnmount(() => {
   color: var(--gv-color-on-surface);
   box-shadow: var(--gv-elev-3);
   overscroll-behavior: contain;
+}
+
+.fav-picker--compact {
+  inset: auto 0 0 0;
+  width: 100%;
+  max-width: 640px;
+  max-height: 90dvh;
+  margin: 0 auto;
+  border-radius: var(--gv-radius-xl) var(--gv-radius-xl) 0 0;
 }
 
 .fav-picker:modal {

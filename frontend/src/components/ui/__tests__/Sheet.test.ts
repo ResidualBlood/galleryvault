@@ -122,4 +122,31 @@ describe("Sheet", () => {
 
     wrapper.unmount();
   });
+
+  it("ignores presses from a nested overlay outside the panel rect", async () => {
+    const wrapper = mountSheet({ open: true });
+    await flush();
+    mockPanelRect(panelEl());
+
+    const dialog = rootEl();
+    const overlay = document.createElement("button");
+    dialog.append(overlay);
+    overlay.dispatchEvent(new MouseEvent("pointerdown", { clientX: 320, clientY: 10, bubbles: true }));
+    overlay.dispatchEvent(new MouseEvent("pointerup", { clientX: 320, clientY: 10, bubbles: true }));
+    expect(wrapper.emitted("close")).toBeUndefined();
+
+    wrapper.unmount();
+  });
+
+  it("closes a still-open sheet when the owner unmounts it", async () => {
+    const wrapper = mountSheet({ open: true });
+    await flush();
+    const dialog = rootEl();
+    expect(dialog.open).toBe(true);
+
+    wrapper.unmount();
+
+    expect(dialog.open).toBe(false);
+    expect(dialog.dataset.gvModal).toBeUndefined();
+  });
 });
