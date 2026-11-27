@@ -115,6 +115,17 @@ test("@polish-shell topbar brand and title are separated once", async ({ page })
   await expect(topbar).not.toContainText("GalleryVault GalleryVault");
 });
 
+test("@polish-shell nav sheet closes on a backdrop press at 390", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await page.getByTestId("bottom-more").click();
+  const sheet = page.getByTestId("nav-sheet");
+  await expect(sheet).toBeVisible();
+
+  await page.mouse.click(382, 400);
+  await expect(sheet).toHaveCount(0);
+});
+
 test("@polish-shell all destinations are reachable at 390 via more", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");

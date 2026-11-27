@@ -200,7 +200,7 @@ test("G-08 归档对话框与收藏夹选择框 @parity", async ({ app }) => {
   await expect(page.getByTestId("gallery-title")).toBeVisible({ timeout: 20_000 });
   await page.getByTestId("fav-select").click();
   await expect(page.getByTestId("fav-picker")).toBeVisible();
-  await page.locator(".fav-picker__scrim").click();
+  await page.keyboard.press("Escape");
   await expect(page.getByTestId("fav-picker")).toHaveCount(0);
 
   await page.goto("/#/downloads");

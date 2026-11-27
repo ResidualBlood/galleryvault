@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeMount, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import Icon from "@/components/icons/Icon.vue";
+import { useModalHost } from "@/composables/useModalHost";
 import {
   focusFirstMenuItem,
   focusMenuItemFor,
@@ -34,6 +35,9 @@ const emit = defineEmits<{
 const { t, locale } = useI18n();
 const local = useTagNavigation("local");
 const online = useTagNavigation("online");
+// A menu opened from inside a native modal must live in that dialog's subtree,
+// otherwise the modal makes body inert and the menu becomes unclickable.
+const { host } = useModalHost();
 
 const label = computed(() => tagLabel(props.tag, locale.value));
 const raw = computed(() => tagRawText(props.tag));
@@ -170,7 +174,7 @@ function excludeTag(): void {
 </script>
 
 <template>
-  <Teleport to="body">
+  <Teleport :to="host">
     <div
       ref="menuRoot"
       class="tag-menu"

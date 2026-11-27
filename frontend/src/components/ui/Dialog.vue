@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { nextTick, ref, useId, watch } from "vue";
+import { useModalHost } from "@/composables/useModalHost";
 
 const props = withDefaults(
   defineProps<{
@@ -16,50 +17,86 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{ close: [] }>();
+const root = ref<HTMLDialogElement | null>(null);
 const panel = ref<HTMLElement | null>(null);
-const titleId = `gv-dialog-title-${Math.random().toString(36).slice(2, 9)}`;
-let previousFocus: HTMLElement | null = null;
+const { host, refresh: refreshHost, reset: resetHost } = useModalHost();
+const titleId = useId();
+let pressedOutside = false;
 
 watch(
   () => props.open,
   async (open) => {
     if (open) {
-      previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      refreshHost();
       await nextTick();
-      panel.value?.focus();
+      const dialog = root.value;
+      if (dialog && !dialog.open) {
+        dialog.showModal();
+        dialog.dataset.gvModal = "";
+        dialog.removeAttribute("aria-hidden");
+      }
     } else {
-      previousFocus?.focus();
-      previousFocus = null;
+      const dialog = root.value;
+      if (dialog?.open) {
+        delete dialog.dataset.gvModal;
+        dialog.close();
+        // The element stays mounted for the leave transition; keep the fading
+        // copy out of the accessibility tree so only the new dialog is exposed.
+        dialog.setAttribute("aria-hidden", "true");
+      }
     }
   },
+  { immediate: true },
 );
 
 function requestClose(): void {
   if (props.dismissible) emit("close");
 }
 
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape" && props.open) requestClose();
+function onCancel(event: Event): void {
+  event.preventDefault();
+  requestClose();
 }
 
-onMounted(() => document.addEventListener("keydown", onKeydown));
-onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
+function outside(event: MouseEvent): boolean {
+  const rect = panel.value?.getBoundingClientRect();
+  if (!rect) return false;
+  return (
+    event.clientX < rect.left ||
+    event.clientX > rect.right ||
+    event.clientY < rect.top ||
+    event.clientY > rect.bottom
+  );
+}
+
+function onPointerDown(event: MouseEvent): void {
+  pressedOutside = outside(event);
+}
+
+function onPointerUp(event: MouseEvent): void {
+  if (pressedOutside && outside(event)) requestClose();
+  pressedOutside = false;
+}
+
+function onAfterLeave(): void {
+  resetHost();
+}
 </script>
 
 <template>
-  <Teleport to="body">
-    <Transition name="dialog">
-      <div v-if="open" class="dialog">
-        <div class="dialog__scrim" @click="requestClose" />
-        <section
-          ref="panel"
-          class="dialog__panel"
-          role="dialog"
-          aria-modal="true"
-          :aria-labelledby="title ? titleId : undefined"
-          :data-testid="testid"
-          tabindex="-1"
-        >
+  <Teleport :to="host">
+    <Transition name="dialog" @after-leave="onAfterLeave">
+      <dialog
+        v-if="open"
+        ref="root"
+        class="dialog"
+        :aria-labelledby="title ? titleId : undefined"
+        :data-testid="testid"
+        @cancel="onCancel"
+        @pointerdown="onPointerDown"
+        @pointerup="onPointerUp"
+      >
+        <div ref="panel" class="dialog__panel">
           <header v-if="title || $slots.header" class="dialog__header">
             <slot name="header">
               <h2 :id="titleId" class="dialog__title">{{ title }}</h2>
@@ -71,8 +108,8 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
           <footer v-if="$slots.footer" class="dialog__footer">
             <slot name="footer" />
           </footer>
-        </section>
-      </div>
+        </div>
+      </dialog>
     </Transition>
   </Teleport>
 </template>
@@ -81,17 +118,36 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 .dialog {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: var(--gv-space-4);
+  border: 0;
+  background: transparent;
+  color: var(--gv-color-on-surface);
+  overflow: hidden;
+  transition-property: display, overlay;
+  transition-duration: var(--gv-motion-duration-medium);
+  transition-timing-function: var(--gv-motion-ease-standard);
+  transition-behavior: allow-discrete;
+}
+
+.dialog[open] {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--gv-space-4);
 }
 
-.dialog__scrim {
-  position: absolute;
-  inset: 0;
+.dialog:modal {
+  overscroll-behavior: contain;
+}
+
+.dialog::backdrop {
   background: color-mix(in srgb, var(--gv-color-scrim) 60%, transparent);
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .dialog__panel {
@@ -104,6 +160,7 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
   background: var(--gv-color-surface-container-highest);
   color: var(--gv-color-on-surface);
   box-shadow: var(--gv-elev-5);
+  overscroll-behavior: contain;
 }
 
 .dialog__header {
@@ -129,7 +186,14 @@ onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 
 .dialog-enter-active,
 .dialog-leave-active {
-  transition: opacity var(--gv-motion-duration-medium) var(--gv-motion-ease-standard);
+  transition-property: opacity, display, overlay;
+  transition-duration: var(--gv-motion-duration-medium);
+  transition-timing-function: var(--gv-motion-ease-standard);
+  transition-behavior: allow-discrete;
+}
+
+.dialog-leave-active {
+  pointer-events: none;
 }
 
 .dialog-enter-active .dialog__panel,
