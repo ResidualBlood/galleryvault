@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import Sheet from "@/components/ui/Sheet.vue";
+import { useModalHost } from "@/composables/useModalHost";
 import FavPickerPanel from "./FavPickerPanel.vue";
 import { ensureActionMessages } from "./messages";
 
@@ -24,7 +25,7 @@ const emit = defineEmits<{ close: [] }>();
 const { t } = useI18n();
 
 const compact = ref(false);
-const host = ref<string | HTMLElement>("body");
+const { host, refresh: refreshHost } = useModalHost();
 const desktop = ref<HTMLDialogElement | null>(null);
 let pressedOutside = false;
 let media: MediaQueryList | null = null;
@@ -33,18 +34,12 @@ function sync(event?: MediaQueryListEvent): void {
   compact.value = event ? event.matches : Boolean(media?.matches);
 }
 
-function modalHost(): HTMLElement | null {
-  if (typeof document === "undefined") return null;
-  const open = document.querySelectorAll<HTMLElement>("[data-gv-modal]");
-  return open.length ? open[open.length - 1] : null;
-}
-
 watch(
   () => [props.open, compact.value] as const,
   async ([open, isCompact]) => {
     const dialog = desktop.value;
     if (open && !isCompact) {
-      host.value = modalHost() ?? "body";
+      refreshHost();
       await nextTick();
       const el = desktop.value;
       if (el && !el.open) {

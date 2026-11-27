@@ -22,6 +22,35 @@ function dialogEl(): HTMLDialogElement {
   return el;
 }
 
+function panelEl(): HTMLElement {
+  const el = document.querySelector<HTMLElement>(".dialog__panel");
+  if (!el) throw new Error("dialog panel not rendered");
+  return el;
+}
+
+function rect(left: number, top: number, right: number, bottom: number): DOMRect {
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+/** The root `<dialog>` spans the viewport; only `.dialog__panel` is the panel. */
+function mockFullViewportRoot(): void {
+  vi.spyOn(dialogEl(), "getBoundingClientRect").mockReturnValue(rect(0, 0, 1280, 900));
+}
+
+function mockPanel(): void {
+  vi.spyOn(panelEl(), "getBoundingClientRect").mockReturnValue(rect(100, 100, 400, 400));
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   document.body.innerHTML = "";
@@ -85,17 +114,8 @@ describe("Dialog", () => {
     expect(cancel.defaultPrevented).toBe(true);
 
     const dialog = dialogEl();
-    vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue({
-      left: 100,
-      top: 100,
-      right: 400,
-      bottom: 400,
-      width: 300,
-      height: 300,
-      x: 100,
-      y: 100,
-      toJSON: () => ({}),
-    } as DOMRect);
+    mockFullViewportRoot();
+    mockPanel();
     dialog.dispatchEvent(new MouseEvent("pointerdown", { clientX: 10, clientY: 10 }));
     dialog.dispatchEvent(new MouseEvent("pointerup", { clientX: 10, clientY: 10 }));
 
@@ -110,17 +130,9 @@ describe("Dialog", () => {
     await flush();
 
     const dialog = dialogEl();
-    vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue({
-      left: 100,
-      top: 100,
-      right: 400,
-      bottom: 400,
-      width: 300,
-      height: 300,
-      x: 100,
-      y: 100,
-      toJSON: () => ({}),
-    } as DOMRect);
+    // Regression: the full-viewport root must not make every click "inside".
+    mockFullViewportRoot();
+    mockPanel();
 
     dialog.dispatchEvent(new MouseEvent("pointerdown", { clientX: 200, clientY: 200 }));
     dialog.dispatchEvent(new MouseEvent("pointerup", { clientX: 200, clientY: 200 }));

@@ -3,6 +3,7 @@ import { nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink } from "vue-router";
 import IconButton from "@/components/ui/IconButton.vue";
+import { useModalHost } from "@/composables/useModalHost";
 import NavLink from "./NavLink.vue";
 import { navFixed, navGroups } from "./navigation";
 
@@ -20,20 +21,14 @@ const emit = defineEmits<{ close: [] }>();
 const { t } = useI18n();
 const root = ref<HTMLDialogElement | null>(null);
 const panel = ref<HTMLElement | null>(null);
-const host = ref<string | HTMLElement>("body");
+const { host, refresh: refreshHost, reset: resetHost } = useModalHost();
 let pressedOutside = false;
-
-function modalHost(): HTMLElement | null {
-  if (typeof document === "undefined") return null;
-  const open = document.querySelectorAll<HTMLElement>("[data-gv-modal]");
-  return open.length ? open[open.length - 1] : null;
-}
 
 watch(
   () => props.open,
   async (open) => {
     if (open) {
-      host.value = modalHost() ?? "body";
+      refreshHost();
       await nextTick();
       const dialog = root.value;
       if (dialog && !dialog.open) {
@@ -81,7 +76,7 @@ function onPointerUp(event: MouseEvent): void {
 }
 
 function onAfterLeave(): void {
-  host.value = "body";
+  resetHost();
 }
 </script>
 

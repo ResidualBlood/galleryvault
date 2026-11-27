@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, useId, watch } from "vue";
+import { useModalHost } from "@/composables/useModalHost";
 
 const props = withDefaults(
   defineProps<{
@@ -17,23 +18,16 @@ const props = withDefaults(
 
 const emit = defineEmits<{ close: [] }>();
 const root = ref<HTMLDialogElement | null>(null);
-const host = ref<string | HTMLElement>("body");
+const panel = ref<HTMLElement | null>(null);
+const { host, refresh: refreshHost, reset: resetHost } = useModalHost();
 const titleId = useId();
 let pressedOutside = false;
-
-/** The last open native modal, so a dialog opened from inside another modal is
- *  teleported into that modal instead of the inert body subtree. */
-function modalHost(): HTMLElement | null {
-  if (typeof document === "undefined") return null;
-  const open = document.querySelectorAll<HTMLElement>("[data-gv-modal]");
-  return open.length ? open[open.length - 1] : null;
-}
 
 watch(
   () => props.open,
   async (open) => {
     if (open) {
-      host.value = modalHost() ?? "body";
+      refreshHost();
       await nextTick();
       const dialog = root.value;
       if (dialog && !dialog.open) {
@@ -65,7 +59,7 @@ function onCancel(event: Event): void {
 }
 
 function outside(event: MouseEvent): boolean {
-  const rect = root.value?.getBoundingClientRect();
+  const rect = panel.value?.getBoundingClientRect();
   if (!rect) return false;
   return (
     event.clientX < rect.left ||
@@ -85,7 +79,7 @@ function onPointerUp(event: MouseEvent): void {
 }
 
 function onAfterLeave(): void {
-  host.value = "body";
+  resetHost();
 }
 </script>
 
@@ -102,7 +96,7 @@ function onAfterLeave(): void {
         @pointerdown="onPointerDown"
         @pointerup="onPointerUp"
       >
-        <div class="dialog__panel">
+        <div ref="panel" class="dialog__panel">
           <header v-if="title || $slots.header" class="dialog__header">
             <slot name="header">
               <h2 :id="titleId" class="dialog__title">{{ title }}</h2>

@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from "vue";
+import { computed, nextTick, onBeforeMount, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import Icon from "@/components/icons/Icon.vue";
+import { useModalHost } from "@/composables/useModalHost";
+import {
+  focusFirstMenuItem,
+  focusMenuItemFor,
+  isMenuNavKey,
+} from "@/composables/useMenuKeyboard";
 import { tagLabel, tagRawText, type TagLike } from "./tag-utils";
 import { useTagNavigation, type TagSource } from "./useTagNavigation";
 import "./i18n";
@@ -29,6 +35,9 @@ const emit = defineEmits<{
 const { t, locale } = useI18n();
 const local = useTagNavigation("local");
 const online = useTagNavigation("online");
+// A menu opened from inside a native modal must live in that dialog's subtree,
+// otherwise the modal makes body inert and the menu becomes unclickable.
+const { host } = useModalHost();
 
 const label = computed(() => tagLabel(props.tag, locale.value));
 const raw = computed(() => tagRawText(props.tag));
@@ -45,6 +54,42 @@ function close(): void {
   emit("close");
 }
 
+const menuRoot = ref<HTMLElement | null>(null);
+/** Element that opened the menu (the tag chip); restored on Escape / actions. */
+let restoreTarget: HTMLElement | null = null;
+
+const FOCUSABLE_SELECTOR =
+  'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Right-click does not always focus the chip and touch long-press usually
+ * leaves focus on `<body>`, so fall back to the element under the pointer.
+ * Runs before the menu DOM exists, otherwise elementFromPoint would hit the menu.
+ */
+function captureRestoreTarget(): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && active !== document.body) return active;
+  const hit = document.elementFromPoint?.(props.x, props.y);
+  if (!(hit instanceof HTMLElement)) return null;
+  return hit.closest<HTMLElement>(FOCUSABLE_SELECTOR) ?? hit;
+}
+
+onBeforeMount(() => {
+  restoreTarget = captureRestoreTarget();
+});
+
+function restoreFocus(): void {
+  const target = restoreTarget;
+  restoreTarget = null;
+  if (target?.isConnected) target.focus();
+}
+
+function closeAndRestore(): void {
+  restoreFocus();
+  close();
+}
+
 function onDocumentPointer(event: Event): void {
   const target = event.target;
   if (target instanceof Element && target.closest(".tag-menu")) return;
@@ -52,12 +97,23 @@ function onDocumentPointer(event: Event): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === "Escape") close();
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeAndRestore();
+    return;
+  }
+  if (event.key === "Tab") {
+    close();
+    return;
+  }
+  if (!isMenuNavKey(event.key)) return;
+  if (focusMenuItemFor(menuRoot.value, event.key)) event.preventDefault();
 }
 
 onMounted(() => {
   document.addEventListener("pointerdown", onDocumentPointer, true);
   document.addEventListener("keydown", onKeydown);
+  void nextTick(() => focusFirstMenuItem(menuRoot.value));
 });
 
 onBeforeUnmount(() => {
@@ -97,29 +153,30 @@ async function copyRaw(): Promise<void> {
   }
   if (!copied) copied = fallbackCopy(text);
   if (copied) emit("copied", text);
-  close();
+  closeAndRestore();
 }
 
 function filterLocal(): void {
   void local.navigate(props.tag);
-  close();
+  closeAndRestore();
 }
 
 function searchOnline(): void {
   void online.navigate(props.tag);
-  close();
+  closeAndRestore();
 }
 
 function excludeTag(): void {
   const target = props.source === "online" ? online : local;
   void target.navigate(props.tag, { exclude: true });
-  close();
+  closeAndRestore();
 }
 </script>
 
 <template>
-  <Teleport to="body">
+  <Teleport :to="host">
     <div
+      ref="menuRoot"
       class="tag-menu"
       role="menu"
       data-testid="tag-menu"

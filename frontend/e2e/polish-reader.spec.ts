@@ -357,6 +357,11 @@ test("@polish-reader settings sheet uses shared controls", async ({ page }) => {
 
   const panel = page.getByTestId("reader-settings-panel");
   await expect(panel).toBeVisible();
+  // Corner press on the backdrop (the root dialog spans the viewport).
+  await page.mouse.click(4, 4);
+  await expect(panel).toHaveCount(0);
+  await page.getByTestId("reader-settings").click();
+  await expect(panel).toBeVisible();
   await expectNoGlyphIcons(page, { selector: '[data-testid="reader-settings-panel"]' });
 
   const modeControl = page.getByTestId("reader-mode-control");

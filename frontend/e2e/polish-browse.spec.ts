@@ -251,6 +251,17 @@ test("@polish-browse grid hides inline tags until hover; list and table cap them
   });
   const sheet = page.getByTestId("card-tag-sheet");
   await expect(sheet).toBeVisible({ timeout: 3_000 });
+  // Backdrop press: the root <dialog> spans the viewport, so only the panel
+  // rectangle counts as inside.
+  await page.mouse.click(4, 4);
+  await expect(sheet).toHaveCount(0);
+  await cards.first().dispatchEvent("pointerdown", {
+    pointerType: "touch",
+    clientX: 40,
+    clientY: 260,
+    bubbles: true,
+  });
+  await expect(sheet).toBeVisible({ timeout: 3_000 });
   expect(await sheet.locator(".tag-chip").count()).toBeGreaterThanOrEqual(4);
   await expect(sheet.getByTestId("tag-more")).toHaveText("+1");
   await page.keyboard.press("Escape");
@@ -272,6 +283,36 @@ test("@polish-browse grid hides inline tags until hover; list and table cap them
   const tableChips = tableRow.locator(".tag-list .tag-chip");
   expect(await tableChips.count()).toBeLessThanOrEqual(3);
   await expect(tableRow.getByTestId("tag-more")).toHaveText("+2");
+});
+
+test("@polish-browse tag menu opened inside the tag sheet stays clickable", async ({ page }) => {
+  await openBrowse(page);
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+
+  const card = page.getByTestId("gallery-card").first();
+  await card.dispatchEvent("pointerdown", {
+    pointerType: "touch",
+    clientX: 40,
+    clientY: 260,
+    bubbles: true,
+  });
+  const sheet = page.getByTestId("card-tag-sheet");
+  await expect(sheet).toBeVisible({ timeout: 3_000 });
+
+  // The sheet is a native modal: body is inert, so the menu must be rendered
+  // inside the dialog subtree to stay clickable.
+  await sheet.locator(".tag-chip").first().click({ button: "right" });
+  const menu = page.getByTestId("tag-menu");
+  await expect(menu).toBeVisible();
+  expect(await menu.evaluate((el) => el.closest("dialog[open]") !== null)).toBe(true);
+
+  await menu.getByTestId("tag-menu-copy").click();
+  await expect(menu).toBeHidden();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(":");
+  // The sheet is still open and interactive after the nested menu action.
+  await expect(sheet).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
 });
 
 test("@polish-browse view mode is remembered per page and table falls back at 390", async ({

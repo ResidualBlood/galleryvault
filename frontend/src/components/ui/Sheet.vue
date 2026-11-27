@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, useId, watch } from "vue";
+import { useModalHost } from "@/composables/useModalHost";
 
 const props = withDefaults(
   defineProps<{
@@ -18,23 +19,15 @@ const props = withDefaults(
 const emit = defineEmits<{ close: [] }>();
 const root = ref<HTMLDialogElement | null>(null);
 const panel = ref<HTMLElement | null>(null);
-const host = ref<string | HTMLElement>("body");
+const { host, refresh: refreshHost, reset: resetHost } = useModalHost();
 const titleId = useId();
 let pressedOutside = false;
-
-/** The last open native modal, so a sheet opened from inside another modal is
- *  teleported into that modal instead of the inert body subtree. */
-function modalHost(): HTMLElement | null {
-  if (typeof document === "undefined") return null;
-  const open = document.querySelectorAll<HTMLElement>("[data-gv-modal]");
-  return open.length ? open[open.length - 1] : null;
-}
 
 watch(
   () => props.open,
   async (open) => {
     if (open) {
-      host.value = modalHost() ?? "body";
+      refreshHost();
       await nextTick();
       const dialog = root.value;
       if (dialog && !dialog.open) {
@@ -86,7 +79,7 @@ function onPointerUp(event: MouseEvent): void {
 }
 
 function onAfterLeave(): void {
-  host.value = "body";
+  resetHost();
 }
 </script>
 

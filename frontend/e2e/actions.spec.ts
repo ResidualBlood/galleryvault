@@ -170,6 +170,18 @@ test.describe("quick actions @actions", () => {
     expect(mock.writes.every((write) => write.csrf === "test-csrf")).toBe(true);
   });
 
+  test("favcat picker closes on a backdrop press", async ({ page }) => {
+    await mockActionsBackend(page, { statusSequence: ["none"] });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(harnessUrl({ density: "detail" }));
+
+    await page.getByTestId("fav-select").click();
+    await expect(page.getByTestId("fav-picker")).toBeVisible();
+
+    await page.mouse.click(4, 4);
+    await expect(page.getByTestId("fav-picker")).toHaveCount(0);
+  });
+
   test("screenshots: hover overlay, favcat picker, mobile long-press sheet", async ({ page }) => {
     const csp = watchCsp(page);
     await mockActionsBackend(page, { statusSequence: ["none"] });

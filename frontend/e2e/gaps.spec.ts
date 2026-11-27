@@ -30,6 +30,24 @@ test("updates archive uses the shared preview dialog @gaps", async ({ page }) =>
     .toMatchObject({ ids: [1], archive: true, quality: "original" });
 });
 
+test("archive dialog closes on a press and release outside the panel @gaps", async ({ page }) => {
+  await installGapsMock(page);
+  await page.goto("/#/updates");
+  await expect(page.getByTestId("updates-view")).toBeVisible();
+
+  await page.getByTestId("updates-select-1").check();
+  await page.getByTestId("updates-archive").click();
+
+  const dialog = page.getByTestId("archive-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveRole("dialog");
+
+  // The root <dialog> spans the viewport; the panel is smaller. A corner press
+  // must count as outside and dismiss, otherwise the scrim is dead.
+  await page.mouse.click(4, 4);
+  await expect(dialog).toHaveCount(0);
+});
+
 test("archive dialog default follows the archive_quality setting @gaps", async ({ page }) => {
   const state = await installGapsMock(page, { archiveQuality: "original" });
   await page.goto("/#/updates");
