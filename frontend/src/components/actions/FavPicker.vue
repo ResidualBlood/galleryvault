@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useI18n } from "vue-i18n";
+import { nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from "vue";
 import { useModalHost } from "@/composables/useModalHost";
 import FavPickerPanel from "./FavPickerPanel.vue";
 import { ensureActionMessages } from "./messages";
@@ -21,9 +20,11 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{ close: [] }>();
-const { t } = useI18n();
 
 const compact = ref(false);
+// The panel owns the visible heading; the dialog takes its accessible name
+// from it at both breakpoints (the sheet used to bring its own <h2>).
+const titleId = useId();
 const { host, refresh: refreshHost } = useModalHost();
 const desktop = ref<HTMLDialogElement | null>(null);
 let pressedOutside = false;
@@ -110,12 +111,14 @@ onBeforeUnmount(() => {
       class="fav-picker"
       :class="{ 'fav-picker--compact': compact }"
       :data-testid="compact ? 'fav-sheet' : 'fav-picker'"
-      :aria-label="t('actions.favoriteSelect')"
+      :aria-labelledby="titleId"
       @cancel="onCancel"
       @pointerdown="onPointerDown"
       @pointerup="onPointerUp"
     >
+      <div v-if="compact" class="fav-picker__handle" aria-hidden="true" />
       <FavPickerPanel
+        :heading-id="titleId"
         :gid="gid"
         :token="token"
         :favorited="favorited"
@@ -152,6 +155,15 @@ onBeforeUnmount(() => {
   max-height: 90dvh;
   margin: 0 auto;
   border-radius: var(--gv-radius-xl) var(--gv-radius-xl) 0 0;
+}
+
+/* Decorative only, matching the sheet handle other bottom sheets show. */
+.fav-picker__handle {
+  width: 32px;
+  height: 4px;
+  margin: 0 auto var(--gv-space-3);
+  border-radius: var(--gv-radius-full);
+  background: var(--gv-color-outline);
 }
 
 .fav-picker:modal {

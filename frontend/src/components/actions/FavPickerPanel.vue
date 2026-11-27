@@ -21,7 +21,7 @@ const props = defineProps<{
   favcat: number | null;
   note?: string | null;
   disabled?: boolean;
-  heading?: boolean;
+  headingId: string;
 }>();
 
 const emit = defineEmits<{ done: [] }>();
@@ -30,7 +30,6 @@ const { t } = useI18n();
 const store = useFavoritesStore();
 const ui = useUiStore();
 
-const withHeading = props.heading ?? true;
 const selected = ref<number>(parseFavcat(props.favcat) ?? readDefaultFavcat() ?? 0);
 const note = ref(props.note ?? "");
 const submitting = ref(false);
@@ -115,7 +114,9 @@ async function submit(): Promise<void> {
 
 <template>
   <div class="fav-panel" data-testid="fav-panel">
-    <p v-if="withHeading" class="fav-panel__title">{{ t("actions.favoriteSelect") }}</p>
+    <h2 :id="headingId" class="fav-panel__title">
+      {{ t("actions.favoriteSelect") }}
+    </h2>
     <div class="fav-panel__grid" role="radiogroup" :aria-label="t('actions.favoriteSelect')">
       <Button
         v-for="category in categories"

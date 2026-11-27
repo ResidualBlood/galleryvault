@@ -65,6 +65,31 @@ test("fav picker survives crossing 390 → 1280 while open", async ({ page }) =>
   await expect(picker).toHaveCount(0);
 });
 
+test("fav picker keeps a visible h2 heading and dialog name on the narrow layout", async ({
+  page,
+}) => {
+  await mockActionsBackend(page, { statusSequence: ["none"] });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${harness}?density=detail&theme=dark`);
+
+  await page.getByTestId("fav-select").click();
+  const sheet = page.getByTestId("fav-sheet");
+  await expect(sheet).toBeVisible();
+
+  const heading = sheet.getByRole("heading", { level: 2 });
+  await expect(heading).toBeVisible();
+  await expect(heading).toHaveText("选择收藏夹");
+  const headingId = await heading.getAttribute("id");
+  expect(headingId).toBeTruthy();
+  await expect(sheet).toHaveAttribute("aria-labelledby", headingId as string);
+  await expect(sheet).toHaveAccessibleName("选择收藏夹");
+  await expect(sheet.getByTestId("fav-cat-3")).toBeVisible();
+  await expect(sheet.locator(".fav-picker__handle")).toHaveCount(1);
+
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
+});
+
 test("tag menu action inside the card tag sheet keeps the parent modal open", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
