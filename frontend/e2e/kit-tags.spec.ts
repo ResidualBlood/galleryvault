@@ -76,6 +76,7 @@ test("tag kit stays language-reactive, clickable and truncates with +N @kit-tags
   const menu = page.getByTestId("tag-menu");
   await expect(menu).toBeVisible();
   await expect(menu.getByTestId("tag-menu-copy")).toHaveText("Copy raw tag");
+  await expect(menu.getByTestId("tag-menu-copy")).toBeFocused();
   await menu.getByTestId("tag-menu-copy").click();
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied).toBe("female:big breasts");
@@ -111,8 +112,13 @@ test("tag menu opens from a touch long press at 390 @kit-tags", async ({ page })
   await expect(menu).toBeVisible({ timeout: 2_000 });
   await expect(menu).toContainText("female:big breasts");
 
+  // Keyboard contract: first item focused, ArrowDown moves, Escape restores the chip.
+  await expect(menu.getByTestId("tag-menu-copy")).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByTestId("tag-menu-filter")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
+  await expect(chip).toBeFocused();
   await expectNoHorizontalOverflow(page);
   await expectNoGlyphIcons(page, { selector: '[data-testid="kit-view"]' });
 });
