@@ -179,6 +179,7 @@ function goBack(): void {
             :src="coverUrl"
             :alt="coverAlt"
             :referrerpolicy="coverNoReferrer ? 'no-referrer' : undefined"
+            fetchpriority="high"
             decoding="async"
             @error="coverBroken = true"
           />
