@@ -5,7 +5,7 @@ kind: fix
 source: 复审 review-fe-native-dialog 第 2 轮必修（窄屏收藏选择器可见 h2 标题语义丢失）
 tickets: []
 commits:
-  - 97308c8
+  - c288c95
 decisions:
   - 标题由 FavPickerPanel 渲染为 <h2 :id="headingId">，FavPicker 用 useId() 生成 id 并以 aria-labelledby 命名 dialog、去掉 aria-label
   - 面板 heading 布尔 prop 改为必填 headingId 字符串，消除 Vue Boolean 缺省 false 导致的“标题存在与否随调用方”歧义
